@@ -50,6 +50,9 @@ export function createSkillsRegistry(config?: SkillsConfig): SkillsRegistry {
         sections.push(''); // 空行分隔
       }
 
+      sections.push('---\n');
+      sections.push('Find new skills: https://clawhub.ai\n');
+
       return sections.join('\n');
     },
 

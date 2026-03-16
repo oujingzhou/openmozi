@@ -5,86 +5,8 @@
 
 import { readFile } from 'fs/promises';
 import { basename, dirname } from 'path';
+import { parse as parseYaml } from 'yaml';
 import type { SkillEntry, SkillFrontmatter, SkillSource } from './types.js';
-
-/**
- * 解析 YAML frontmatter
- * 简化实现，不依赖外部 YAML 解析库
- */
-function parseYamlFrontmatter(yaml: string): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
-  const lines = yaml.split('\n');
-  let currentKey: string | null = null;
-  let currentArray: string[] | null = null;
-  let currentIndent = 0;
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-
-    // 检测数组项
-    if (trimmed.startsWith('- ')) {
-      if (currentKey && currentArray) {
-        currentArray.push(trimmed.slice(2).trim());
-      }
-      continue;
-    }
-
-    // 检测键值对
-    const colonIndex = trimmed.indexOf(':');
-    if (colonIndex > 0) {
-      // 保存之前的数组
-      if (currentKey && currentArray) {
-        result[currentKey] = currentArray;
-        currentArray = null;
-      }
-
-      const key = trimmed.slice(0, colonIndex).trim();
-      const value = trimmed.slice(colonIndex + 1).trim();
-
-      if (value === '') {
-        // 可能是数组或嵌套对象的开始
-        currentKey = key;
-        currentArray = [];
-        currentIndent = line.search(/\S/);
-      } else {
-        // 简单的键值对
-        result[key] = parseYamlValue(value);
-        currentKey = null;
-        currentArray = null;
-      }
-    }
-  }
-
-  // 保存最后一个数组
-  if (currentKey && currentArray && currentArray.length > 0) {
-    result[currentKey] = currentArray;
-  }
-
-  return result;
-}
-
-/**
- * 解析 YAML 值
- */
-function parseYamlValue(value: string): unknown {
-  // 去除引号
-  if ((value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))) {
-    return value.slice(1, -1);
-  }
-
-  // 布尔值
-  if (value === 'true') return true;
-  if (value === 'false') return false;
-
-  // 数字
-  const num = Number(value);
-  if (!isNaN(num)) return num;
-
-  // 字符串
-  return value;
-}
 
 /**
  * 解析 SKILL.md 文件内容
@@ -118,7 +40,13 @@ export function parseSkillContent(
 
   // 解析 frontmatter
   const yamlContent = trimmedContent.slice(3, endIndex).trim();
-  const parsed = parseYamlFrontmatter(yamlContent);
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = parseYaml(yamlContent) ?? {};
+  } catch {
+    console.warn(`Failed to parse YAML frontmatter in ${filePath}`);
+    return null;
+  }
 
   // 构建 frontmatter 对象
   const frontmatter: SkillFrontmatter = {
@@ -132,7 +60,7 @@ export function parseSkillContent(
     priority: parsed.priority as number | undefined,
   };
 
-  // 解析 eligibility
+  // 解析 eligibility（直接声明优先）
   if (parsed.eligibility && typeof parsed.eligibility === 'object') {
     frontmatter.eligibility = parsed.eligibility as SkillFrontmatter['eligibility'];
   } else {
@@ -142,6 +70,19 @@ export function parseSkillContent(
         os: parsed.os as string[] | undefined,
         binaries: parsed.binaries as string[] | undefined,
         envVars: parsed.envVars as string[] | undefined,
+      };
+    }
+  }
+
+  // 兼容 moltbot 格式: metadata.openclaw.requires → eligibility
+  if (!frontmatter.eligibility) {
+    const metadata = parsed.metadata as Record<string, unknown> | undefined;
+    const openclaw = metadata?.openclaw as Record<string, unknown> | undefined;
+    const requires = openclaw?.requires as Record<string, unknown> | undefined;
+    if (requires) {
+      frontmatter.eligibility = {
+        binaries: requires.bins as string[] | undefined,
+        envVars: requires.env as string[] | undefined,
       };
     }
   }

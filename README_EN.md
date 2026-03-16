@@ -381,6 +381,23 @@ When users greet you, follow these rules:
 }
 ```
 
+### ClawdHub Skill Marketplace
+
+OpenMozi supports searching and installing community-shared skills from [ClawdHub](https://clawhub.ai). After installing the `clawhub` CLI, the Agent automatically gains the ability to search and install skills.
+
+```bash
+# Install clawhub CLI
+npm i -g clawhub
+
+# Search for skills
+clawhub search <query>
+
+# Install skill to mozi workspace directory
+clawhub install <slug> --workdir ./.mozi/skills
+```
+
+> Skills installed from ClawdHub use moltbot's frontmatter format (`metadata.openclaw.requires`), which OpenMozi automatically parses and converts.
+
 ## Memory System
 
 The memory system allows the Agent to remember important information across sessions, such as user preferences, key facts, task context, etc. Memory is enabled by default, stored in `~/.mozi/memory/` directory.
@@ -628,7 +645,9 @@ src/
 └── types/         # TypeScript type definitions
 
 skills/            # Built-in skills
-└── greeting/      # Smart greeting skill example
+├── greeting/      # Smart greeting skill example
+│   └── SKILL.md
+└── clawhub/       # ClawdHub skill marketplace integration
     └── SKILL.md
 ```
 

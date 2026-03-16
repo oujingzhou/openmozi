@@ -404,6 +404,23 @@ priority: 10
 }
 ```
 
+### ClawdHub 技能市场
+
+OpenMozi 支持从 [ClawdHub](https://clawhub.ai) 搜索和安装社区共享的技能。安装 `clawhub` CLI 后，Agent 会自动获得搜索和安装技能的能力。
+
+```bash
+# 安装 clawhub CLI
+npm i -g clawhub
+
+# 搜索技能
+clawhub search <query>
+
+# 安装技能到 mozi 工作区目录
+clawhub install <slug> --workdir ./.mozi/skills
+```
+
+> ClawdHub 安装的技能使用 moltbot 的 frontmatter 格式（`metadata.openclaw.requires`），OpenMozi 会自动兼容解析。
+
 ## 记忆系统
 
 记忆系统让 Agent 能够跨会话记住重要信息，如用户偏好、关键事实、任务上下文等。记忆默认启用，存储在 `~/.mozi/memory/` 目录。
@@ -651,7 +668,9 @@ src/
 └── types/         # TypeScript 类型定义
 
 skills/            # 内置技能
-└── greeting/      # 智能问候技能示例
+├── greeting/      # 智能问候技能示例
+│   └── SKILL.md
+└── clawhub/       # ClawdHub 技能市场集成
     └── SKILL.md
 ```
 
