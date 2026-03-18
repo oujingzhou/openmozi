@@ -1,45 +1,22 @@
 /**
  * Memory System - Mozi Memory Module
- * Refactored based on moltbot architecture with SQLite backend and hybrid search
+ * Simplified memory system with JSON storage and TF-IDF embedding
  */
 
-// Core types and interfaces
+// Core types
 export type {
   MemoryEntry,
   MemoryStore,
-  EmbeddingProvider,
-  MemorySource,
-  MemorySearchResult,
-  MemoryProviderStatus,
-  MemorySyncProgressUpdate,
-  MemoryEmbeddingProbeResult,
   MemoryListFilter,
   MemoryStoreStatus,
-  MemorySearchOptions,
-  HybridSearchConfig,
-  MemoryConfig,
-  MemoryManagerConfig,
+  EmbeddingProvider,
 } from "./types.js";
 
-// Core interfaces
-export { MemorySearchManager } from "./manager.js";
+// Memory Manager
+export { MemoryManager, createMemoryManager } from "./manager.js";
 
-// Storage implementations
-export { SqliteMemoryStore, JsonMemoryStore } from "./store.js";
-export type { MemoryChunk } from "./store.js";
+// Storage
+export { JsonMemoryStore, cosineSimilarity } from "./store.js";
 
-// Embedding providers
-export {
-  SimpleEmbedding,
-  ProviderEmbedding,
-  APIEmbedding,
-  createEmbeddingProvider,
-  EmbeddingCache,
-  BatchEmbedding,
-} from "./embeddings.js";
-
-// Legacy Memory Manager (backward compatible)
-export { MemoryManager, createMemoryManager, createMemorySearchManager } from "./manager.js";
-
-// Re-export utilities
-export { cosineSimilarity, chunkText, hashText } from "./store.js";
+// Embedding
+export { SimpleEmbedding } from "./embedding.js";

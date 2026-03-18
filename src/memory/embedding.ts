@@ -3,7 +3,7 @@
  * TF-IDF based local embedding implementation without external dependencies
  */
 
-import type { EmbeddingProvider } from "../types.js";
+import type { EmbeddingProvider } from "./types.js";
 
 /**
  * Simple TF-IDF based embedding for local/offline use
@@ -11,8 +11,6 @@ import type { EmbeddingProvider } from "../types.js";
  */
 export class SimpleEmbedding implements EmbeddingProvider {
   dimension = 256;
-  id = "simple";
-  model = "tfidf-v1";
 
   // Vocabulary management
   private readonly maxVocabularySize = 50000;
@@ -113,19 +111,6 @@ export class SimpleEmbedding implements EmbeddingProvider {
   async embedQuery(text: string): Promise<number[]> {
     const [embedding] = await this.embed([text]);
     return embedding ?? new Array(this.dimension).fill(0);
-  }
-
-  // Get vocabulary statistics
-  getStats(): {
-    vocabularySize: number;
-    docCount: number;
-    dimension: number;
-  } {
-    return {
-      vocabularySize: this.vocabulary.size,
-      docCount: this.docCount,
-      dimension: this.dimension,
-    };
   }
 
   // Clear vocabulary (useful for testing)

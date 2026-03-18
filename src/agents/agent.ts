@@ -189,8 +189,6 @@ export async function createAgent(config: MoziConfig): Promise<Agent> {
     memoryManager = createMemoryManager({
       enabled: config.memory.enabled ?? true,
       directory: config.memory.directory,
-      embeddingProvider: config.memory.embeddingProvider,
-      embeddingModel: config.memory.embeddingModel,
     });
     logger.info({ directory: config.memory.directory }, "Memory system initialized");
   }

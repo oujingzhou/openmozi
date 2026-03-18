@@ -131,11 +131,10 @@ export {
   MemoryManager,
   createMemoryManager,
   JsonMemoryStore,
-  ProviderEmbedding,
+  SimpleEmbedding,
   type MemoryEntry,
   type MemoryStore,
   type EmbeddingProvider,
-  type MemoryManagerConfig,
 } from "./memory/index.js";
 
 // Outbound (主动发消息)
