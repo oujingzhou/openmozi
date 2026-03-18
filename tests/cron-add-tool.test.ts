@@ -43,7 +43,6 @@ describe("cron_add tool - agentTurn support", () => {
       message: "hello world",
     });
 
-    expect(result.isError).toBeFalsy();
     const text = result.content[0]?.type === "text" ? result.content[0].text : "";
     expect(text).toContain("定时任务已创建");
     expect(text).toContain("系统事件");
@@ -68,7 +67,6 @@ describe("cron_add tool - agentTurn support", () => {
       timeoutSeconds: 120,
     });
 
-    expect(result.isError).toBeFalsy();
     const text = result.content[0]?.type === "text" ? result.content[0].text : "";
     expect(text).toContain("定时任务已创建");
     expect(text).toContain("Agent 执行");
@@ -100,8 +98,8 @@ describe("cron_add tool - agentTurn support", () => {
       payloadType: "agentTurn",
     });
 
-    expect(result.isError).toBeFalsy();
     const text = result.content[0]?.type === "text" ? result.content[0].text : "";
+    expect(text).toContain("定时任务已创建");
     expect(text).toContain("Agent 执行");
     expect(text).not.toContain("投递目标");
 
@@ -126,8 +124,8 @@ describe("cron_add tool - agentTurn support", () => {
       to: "group456",
     });
 
-    expect(result.isError).toBeFalsy();
     const text = result.content[0]?.type === "text" ? result.content[0].text : "";
+    expect(text).toContain("定时任务已创建");
     expect(text).toContain("Agent 执行");
     expect(text).toContain("feishu");
   });
@@ -144,8 +142,8 @@ describe("cron_add tool - agentTurn support", () => {
       to: "user123",
     });
 
-    expect(result.isError).toBe(true);
     const text = result.content[0]?.type === "text" ? result.content[0].text : "";
+    expect(text).toContain("错误");
     expect(text).toContain("cronExpr");
   });
 
@@ -162,8 +160,8 @@ describe("cron_add tool - agentTurn support", () => {
       to: "user123",
     });
 
-    expect(result.isError).toBe(true);
     const text = result.content[0]?.type === "text" ? result.content[0].text : "";
+    expect(text).toContain("错误");
     expect(text).toContain("无效的通道");
     expect(text).toContain("invalid_channel");
   });
@@ -179,8 +177,8 @@ describe("cron_add tool - agentTurn support", () => {
       timeoutSeconds: 1000, // too large
     });
 
-    expect(result.isError).toBe(true);
     const text = result.content[0]?.type === "text" ? result.content[0].text : "";
+    expect(text).toContain("错误");
     expect(text).toContain("timeoutSeconds");
     expect(text).toContain("1-600");
   });
@@ -199,7 +197,8 @@ describe("cron_add tool - agentTurn support", () => {
         to: "user123",
       });
 
-      expect(result.isError).toBeFalsy();
+      const text = result.content[0]?.type === "text" ? result.content[0].text : "";
+      expect(text).toContain("定时任务已创建");
     }
   });
 });

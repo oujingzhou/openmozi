@@ -2,10 +2,10 @@
  * 工具系统 - 通用工具函数
  */
 
-import type { ToolResult, ToolResultContent } from "./types.js";
+import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 
 /** 创建 JSON 结果 */
-export function jsonResult(payload: unknown, isError = false): ToolResult {
+export function jsonResult(payload: unknown, isError = false): AgentToolResult<unknown> {
   return {
     content: [
       {
@@ -14,21 +14,19 @@ export function jsonResult(payload: unknown, isError = false): ToolResult {
       },
     ],
     details: payload,
-    isError,
   };
 }
 
 /** 创建文本结果 */
-export function textResult(text: string, details?: unknown, isError = false): ToolResult {
+export function textResult(text: string, details?: unknown, isError = false): AgentToolResult<unknown> {
   return {
     content: [{ type: "text", text }],
-    details,
-    isError,
+    details: details ?? {},
   };
 }
 
 /** 创建错误结果 */
-export function errorResult(error: string | Error): ToolResult {
+export function errorResult(error: string | Error): AgentToolResult<unknown> {
   const message = error instanceof Error ? error.message : error;
   return {
     content: [
@@ -38,7 +36,6 @@ export function errorResult(error: string | Error): ToolResult {
       },
     ],
     details: { status: "error", error: message },
-    isError: true,
   };
 }
 
@@ -49,14 +46,14 @@ export function imageResult(params: {
   mimeType: string;
   extraText?: string;
   details?: Record<string, unknown>;
-}): ToolResult {
-  const content: ToolResultContent[] = [
-    { type: "text", text: params.extraText ?? `[Image: ${params.label}]` },
-    { type: "image", data: params.base64, mimeType: params.mimeType },
+}): AgentToolResult<unknown> {
+  const content = [
+    { type: "text" as const, text: params.extraText ?? `[Image: ${params.label}]` },
+    { type: "image" as const, data: params.base64, mimeType: params.mimeType },
   ];
   return {
     content,
-    details: params.details,
+    details: params.details ?? {},
   };
 }
 
@@ -155,12 +152,4 @@ export function readStringArrayParam(
 export function truncateToolText(text: string, maxLength = 8000): string {
   if (text.length <= maxLength) return text;
   return text.slice(0, maxLength) + "\n...[truncated]";
-}
-
-/** 提取工具结果文本 */
-export function extractToolResultText(result: ToolResult): string {
-  return result.content
-    .filter((item): item is { type: "text"; text: string } => item.type === "text")
-    .map((item) => item.text)
-    .join("\n");
 }

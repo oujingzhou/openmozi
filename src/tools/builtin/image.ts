@@ -3,7 +3,7 @@
  */
 
 import { Type } from "@sinclair/typebox";
-import type { Tool } from "../types.js";
+import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { jsonResult, errorResult, readStringParam } from "../common.js";
 import { resolveModel, getApiKeyForProvider, isProviderAvailable } from "../../providers/index.js";
 import type { ProviderId } from "../../types/index.js";
@@ -32,7 +32,7 @@ function getMimeType(filePath: string): string {
 }
 
 /** 图片分析工具 */
-export function createImageAnalyzeTool(options?: ImageAnalyzeToolOptions): Tool {
+export function createImageAnalyzeTool(options?: ImageAnalyzeToolOptions): AgentTool {
   return {
     name: "image_analyze",
     label: "Image Analyze",

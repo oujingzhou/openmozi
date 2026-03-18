@@ -135,6 +135,7 @@ function buildAnthropicModel(
   modelId: string,
   modelDef: ModelDefinition,
   baseUrl: string,
+  provider: string,
   apiVersion?: string,
   headers?: Record<string, string>,
 ): Model<"anthropic-messages"> {
@@ -142,7 +143,7 @@ function buildAnthropicModel(
     id: modelId,
     name: modelDef.name,
     api: "anthropic-messages",
-    provider: "anthropic" as Provider,
+    provider: provider as Provider,
     baseUrl,
     reasoning: modelDef.supportsReasoning,
     input: modelDef.supportsVision ? ["text", "image"] : ["text"],
@@ -255,7 +256,7 @@ function registerCustomAnthropic(config: Record<string, unknown>): void {
       supportsVision: m.supportsVision ?? false,
       supportsReasoning: false,
     };
-    const model = buildAnthropicModel(m.id, modelDef, baseUrl, apiVersion, headers);
+    const model = buildAnthropicModel(m.id, modelDef, baseUrl, "custom-anthropic", apiVersion, headers);
     modelRegistry.set(`custom-anthropic:${m.id}`, { model, providerId: "custom-anthropic" });
   }
 }

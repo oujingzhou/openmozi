@@ -3,7 +3,7 @@
  */
 
 import { Type } from "@sinclair/typebox";
-import type { Tool } from "../types.js";
+import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { jsonResult, errorResult, readStringParam, readNumberParam } from "../common.js";
 import { getChildLogger } from "../../utils/logger.js";
 
@@ -148,7 +148,7 @@ async function runBraveSearch(params: {
 }
 
 /** 网络搜索工具 */
-export function createWebSearchTool(): Tool {
+export function createWebSearchTool(): AgentTool {
   return {
     name: "web_search",
     label: "Web Search",
@@ -211,7 +211,7 @@ export function createWebSearchTool(): Tool {
 }
 
 /** 网页获取工具 */
-export function createWebFetchTool(): Tool {
+export function createWebFetchTool(): AgentTool {
   return {
     name: "web_fetch",
     label: "Web Fetch",

@@ -3,11 +3,11 @@
  */
 
 import { Type } from "@sinclair/typebox";
-import type { Tool } from "../types.js";
+import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { jsonResult, readStringParam, readNumberParam } from "../common.js";
 
 /** 当前时间工具 */
-export function createCurrentTimeTool(): Tool {
+export function createCurrentTimeTool(): AgentTool {
   return {
     name: "current_time",
     label: "Current Time",
@@ -48,7 +48,7 @@ export function createCurrentTimeTool(): Tool {
 }
 
 /** 计算器工具 */
-export function createCalculatorTool(): Tool {
+export function createCalculatorTool(): AgentTool {
   return {
     name: "calculator",
     label: "Calculator",
@@ -74,7 +74,7 @@ export function createCalculatorTool(): Tool {
           status: "error",
           expression,
           error: error instanceof Error ? error.message : String(error),
-        }, true);
+        });
       }
     },
   };
@@ -129,7 +129,7 @@ function evaluateMathExpression(expr: string): number {
 }
 
 /** 延迟工具 (用于测试) */
-export function createDelayTool(): Tool {
+export function createDelayTool(): AgentTool {
   return {
     name: "delay",
     label: "Delay",

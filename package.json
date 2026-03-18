@@ -1,6 +1,6 @@
 {
   "name": "mozi-bot",
-  "version": "1.11.1",
+  "version": "1.12.0",
   "description": "支持国产模型和国产通讯软件的智能助手机器人",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -53,6 +53,7 @@
     "@larksuiteoapi/node-sdk": "^1.56.1",
     "@mariozechner/pi-agent-core": "^0.58.3",
     "@mariozechner/pi-ai": "^0.58.3",
+    "@mariozechner/pi-coding-agent": "^0.60.0",
     "@sinclair/typebox": "^0.34.48",
     "axios": "^1.13.4",
     "chalk": "^5.3.0",

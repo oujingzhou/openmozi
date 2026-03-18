@@ -21,13 +21,13 @@
 
 **An Intelligent Assistant Framework Supporting Chinese AI Models and Communication Platforms**
 
-OpenMozi is a lightweight AI assistant framework focused on the Chinese ecosystem. Built on [pi-agent-core](https://github.com/nicemicro/pi-agent-core) for the Agent runtime and [pi-ai](https://github.com/nicemicro/pi-ai) as the unified multi-model calling layer (supporting 25+ providers), it natively supports Function Calling and integrates with QQ, Feishu, DingTalk, and WeCom platforms.
+OpenMozi is a lightweight AI assistant framework focused on the Chinese ecosystem. Built on [pi-coding-agent](https://github.com/nicemicro/pi-coding-agent) for the Agent runtime (with built-in session management, context compression, and tool execution), and [pi-ai](https://github.com/nicemicro/pi-ai) as the unified multi-model calling layer (supporting 25+ providers), it natively supports Function Calling and integrates with QQ, Feishu, DingTalk, and WeCom platforms.
 
 ## Core Features
 
 - **Multi-Model Support** — Built on pi-ai unified calling layer, supporting DeepSeek, Doubao, DashScope (Qwen), Zhipu AI, Kimi, StepFun, MiniMax, plus OpenAI/Anthropic/OpenRouter/Groq and 25+ providers
 - **Multi-Platform Channels** — QQ, Feishu, DingTalk, WeCom with unified message handling interface
-- **Function Calling** — Based on pi-agent-core Agent runtime, native support for tool calling loops
+- **Function Calling** — Based on pi-coding-agent runtime, native support for tool calling loops
 - **25 Built-in Tools** — File read/write, Bash execution, code search, web fetch, image analysis, browser automation, memory system, scheduled tasks, etc.
 - **Skills System** — Extend Agent capabilities through SKILL.md files, supporting custom behaviors and domain knowledge injection
 - **Memory System** — Cross-session long-term memory, automatically remembers user preferences and important information
@@ -625,7 +625,7 @@ mozi logs --level error # Show only error logs
 
 ```
 src/
-├── agents/        # Agent core (based on pi-agent-core, message loop, context compression, session management)
+├── agents/        # Agent core (based on pi-coding-agent, message loop, session management)
 ├── channels/      # Channel adapters (QQ, Feishu, DingTalk, WeCom)
 ├── providers/     # Model resolution (based on pi-ai, maps config to unified Model objects)
 ├── tools/         # Built-in tools (file, Bash, network, scheduled tasks, etc.)
@@ -777,7 +777,7 @@ flowchart TD
 
 | Module | Directory | Responsibility |
 |--------|-----------|----------------|
-| **Agent** | `src/agents/` | Core message loop, context compression, session management (based on pi-agent-core) |
+| **Agent** | `src/agents/` | Core message loop, session management (based on pi-coding-agent) |
 | **Providers** | `src/providers/` | Model resolution and mapping layer (based on pi-ai, supporting 25+ providers) |
 | **Tools** | `src/tools/` | Tool registration, parameter validation, execution engine, supports custom extensions |
 | **Skills** | `src/skills/` | Skills system, inject professional knowledge and custom behaviors via SKILL.md |

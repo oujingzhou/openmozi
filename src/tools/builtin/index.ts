@@ -15,7 +15,7 @@ export * from "./subagent.js";
 export * from "./memory.js";
 export * from "./cron.js";
 
-import type { Tool } from "../types.js";
+import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { createWebSearchTool, createWebFetchTool } from "./web.js";
 import { createCurrentTimeTool, createCalculatorTool, createDelayTool } from "./system.js";
 import { createImageAnalyzeTool, type ImageAnalyzeToolOptions } from "./image.js";
@@ -48,8 +48,8 @@ export interface BuiltinToolsOptions {
 }
 
 /** 创建所有内置工具 */
-export function createBuiltinTools(options?: BuiltinToolsOptions): Tool[] {
-  const tools: Tool[] = [
+export function createBuiltinTools(options?: BuiltinToolsOptions): AgentTool[] {
+  const tools: AgentTool[] = [
     createCurrentTimeTool(),
     createCalculatorTool(),
     createWebSearchTool(),

@@ -1,21 +1,24 @@
 /**
- * 工具注册表和策略过滤
+ * 工具注册表 (简化版)
+ * 用于插件系统注册自定义工具
  */
 
-import type { Tool, ToolPolicy, ToolCall, ToolCallResult, ToolResult } from "./types.js";
+import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { Tool, ToolPolicy } from "./types.js";
 import { TOOL_GROUPS } from "./types.js";
-import { errorResult } from "./common.js";
-import { getChildLogger } from "../utils/logger.js";
 
-const logger = getChildLogger("tools");
+// 工具注册表 (case-insensitive keys)
+const toolRegistry = new Map<string, AgentTool>();
 
-/** 工具注册表 */
-const toolRegistry = new Map<string, Tool>();
+/** 规范化工具名称 (转小写) */
+function normalizeName(name: string): string {
+  return name.toLowerCase();
+}
 
-/** 注册工具 */
+/** 注册单个工具 */
 export function registerTool(tool: Tool): void {
-  toolRegistry.set(tool.name.toLowerCase(), tool);
-  logger.debug({ tool: tool.name }, "Tool registered");
+  const normalizedName = normalizeName(tool.name);
+  toolRegistry.set(normalizedName, tool as AgentTool);
 }
 
 /** 批量注册工具 */
@@ -25,193 +28,97 @@ export function registerTools(tools: Tool[]): void {
   }
 }
 
-/** 获取工具 */
-export function getTool(name: string): Tool | undefined {
-  return toolRegistry.get(name.toLowerCase());
+/** 获取工具 (case-insensitive) */
+export function getTool(name: string): AgentTool | undefined {
+  return toolRegistry.get(normalizeName(name));
 }
 
 /** 获取所有工具 */
-export function getAllTools(): Tool[] {
+export function getAllTools(): AgentTool[] {
   return Array.from(toolRegistry.values());
 }
 
-/** 清除所有工具 */
+/** 清空注册表 */
 export function clearTools(): void {
   toolRegistry.clear();
 }
 
-// ============== 策略过滤 ==============
-
-/** 编译模式 */
-type CompiledPattern =
-  | { kind: "all" }
-  | { kind: "exact"; value: string }
-  | { kind: "regex"; value: RegExp };
-
-/** 编译单个模式 */
-function compilePattern(pattern: string): CompiledPattern {
-  const normalized = pattern.toLowerCase().trim();
-  if (normalized === "*") return { kind: "all" };
-  if (!normalized.includes("*")) return { kind: "exact", value: normalized };
-
-  const escaped = normalized.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
-  const regexStr = escaped.replace(/\*/g, ".*");
-  return { kind: "regex", value: new RegExp(`^${regexStr}$`) };
-}
-
-/** 编译模式列表 */
-function compilePatterns(patterns?: string[]): CompiledPattern[] {
-  if (!patterns || patterns.length === 0) return [];
-  return patterns.map(compilePattern);
-}
-
 /** 展开工具组 */
-function expandGroups(patterns?: string[]): string[] {
-  if (!patterns) return [];
-
+function expandToolGroups(patterns: string[]): string[] {
   const expanded: string[] = [];
+
   for (const pattern of patterns) {
-    if (pattern.startsWith("group:") && TOOL_GROUPS[pattern]) {
-      expanded.push(...TOOL_GROUPS[pattern]!);
+    if (pattern.startsWith("group:")) {
+      // TOOL_GROUPS keys include "group:" prefix
+      const groupTools = TOOL_GROUPS[pattern];
+      if (groupTools) {
+        expanded.push(...groupTools);
+      }
     } else {
       expanded.push(pattern);
     }
   }
+
   return expanded;
 }
 
-/** 检查是否匹配任一模式 */
-function matchesAny(name: string, patterns: CompiledPattern[]): boolean {
-  for (const pattern of patterns) {
-    switch (pattern.kind) {
-      case "all":
-        return true;
-      case "exact":
-        if (name === pattern.value) return true;
-        break;
-      case "regex":
-        if (pattern.value.test(name)) return true;
-        break;
-    }
+/** 匹配通配符模式 */
+function matchPattern(toolName: string, pattern: string): boolean {
+  const normalizedTool = normalizeName(toolName);
+  const normalizedPattern = normalizeName(pattern);
+
+  if (normalizedPattern === "*") return true;
+  if (normalizedPattern.includes("*")) {
+    const regex = new RegExp("^" + normalizedPattern.replace(/\*/g, ".*") + "$");
+    return regex.test(normalizedTool);
   }
-  return false;
+  return normalizedTool === normalizedPattern;
 }
 
-/** 按策略过滤工具 */
-export function filterToolsByPolicy(tools: Tool[], policy?: ToolPolicy): Tool[] {
-  if (!policy) return tools;
+/**
+ * 根据策略过滤工具
+ */
+export function filterToolsByPolicy(tools: AgentTool[], policy: ToolPolicy = {}): AgentTool[] {
+  if (!policy.allow && !policy.deny) return tools;
 
-  const expandedAllow = expandGroups(policy.allow);
-  const expandedDeny = expandGroups(policy.deny);
-
-  const allowPatterns = compilePatterns(expandedAllow);
-  const denyPatterns = compilePatterns(expandedDeny);
+  const expandedAllow = policy.allow ? expandToolGroups(policy.allow) : undefined;
+  const expandedDeny = policy.deny ? expandToolGroups(policy.deny) : undefined;
 
   return tools.filter((tool) => {
-    const name = tool.name.toLowerCase();
+    // 检查 deny 列表
+    if (expandedDeny) {
+      for (const pattern of expandedDeny) {
+        if (matchPattern(tool.name, pattern)) return false;
+      }
+    }
 
-    // 拒绝优先
-    if (matchesAny(name, denyPatterns)) return false;
+    // 检查 allow 列表
+    if (expandedAllow) {
+      for (const pattern of expandedAllow) {
+        if (matchPattern(tool.name, pattern)) return true;
+      }
+      return false;
+    }
 
-    // 如果没有允许列表，允许所有
-    if (allowPatterns.length === 0) return true;
-
-    // 必须匹配允许列表
-    return matchesAny(name, allowPatterns);
+    return true;
   });
 }
 
-// ============== 工具执行 ==============
-
-/** 执行单个工具调用 */
-export async function executeToolCall(
-  toolCall: ToolCall,
-  signal?: AbortSignal
-): Promise<ToolCallResult> {
-  const startTime = Date.now();
-  const tool = getTool(toolCall.name);
-
-  if (!tool) {
-    return {
-      toolCallId: toolCall.id,
-      name: toolCall.name,
-      result: errorResult(`Unknown tool: ${toolCall.name}`),
-      isError: true,
-      durationMs: Date.now() - startTime,
-    };
-  }
-
-  try {
-    logger.debug({ tool: toolCall.name, args: toolCall.arguments }, "Executing tool");
-
-    const result = await tool.execute(toolCall.id, toolCall.arguments, signal);
-
-    logger.debug(
-      { tool: toolCall.name, durationMs: Date.now() - startTime },
-      "Tool execution completed"
-    );
-
-    return {
-      toolCallId: toolCall.id,
-      name: toolCall.name,
-      result,
-      isError: result.isError ?? false,
-      durationMs: Date.now() - startTime,
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    logger.error({ tool: toolCall.name, error: message }, "Tool execution failed");
-
-    return {
-      toolCallId: toolCall.id,
-      name: toolCall.name,
-      result: errorResult(message),
-      isError: true,
-      durationMs: Date.now() - startTime,
-    };
-  }
-}
-
-/** 批量执行工具调用 */
+/**
+ * 执行工具调用 (占位实现，实际执行由 pi-coding-agent 处理)
+ */
 export async function executeToolCalls(
-  toolCalls: ToolCall[],
-  options?: {
-    signal?: AbortSignal;
-    parallel?: boolean;
-  }
-): Promise<ToolCallResult[]> {
-  const { signal, parallel = false } = options ?? {};
-
-  if (parallel) {
-    return Promise.all(toolCalls.map((tc) => executeToolCall(tc, signal)));
-  }
-
-  const results: ToolCallResult[] = [];
-  for (const toolCall of toolCalls) {
-    if (signal?.aborted) {
-      results.push({
-        toolCallId: toolCall.id,
-        name: toolCall.name,
-        result: errorResult("Aborted"),
-        isError: true,
-        durationMs: 0,
-      });
-      continue;
-    }
-    results.push(await executeToolCall(toolCall, signal));
-  }
-  return results;
+  _toolCalls: Array<{ id: string; name: string; arguments: Record<string, unknown> }>,
+  _tools: AgentTool[]
+): Promise<Array<{ toolCallId: string; name: string; result: unknown; isError: boolean }>> {
+  // 实际执行由 pi-coding-agent 框架处理
+  return [];
 }
 
-/** 将工具转换为 OpenAI 函数格式 */
-export function toolsToOpenAIFunctions(tools: Tool[]): Array<{
-  type: "function";
-  function: {
-    name: string;
-    description: string;
-    parameters: unknown;
-  };
-}> {
+/**
+ * 将工具转换为 OpenAI Functions 格式
+ */
+export function toolsToOpenAIFunctions(tools: AgentTool[]): Array<{ type: string; function: { name: string; description: string; parameters: unknown } }> {
   return tools.map((tool) => ({
     type: "function",
     function: {

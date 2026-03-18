@@ -21,13 +21,13 @@
 
 **支持国产大模型和国产通讯软件的智能助手框架**
 
-OpenMozi 是一个轻量级的 AI 助手框架，专注于国产生态。基于 [pi-agent-core](https://github.com/nicemicro/pi-agent-core) 构建 Agent 运行时，使用 [pi-ai](https://github.com/nicemicro/pi-ai) 作为统一的多模型调用层（支持 25+ 提供商），原生支持 Function Calling，并支持 QQ、飞书、钉钉、企业微信等通讯平台。
+OpenMozi 是一个轻量级的 AI 助手框架，专注于国产生态。基于 [pi-coding-agent](https://github.com/nicemicro/pi-coding-agent) 构建 Agent 运行时（内置会话管理、上下文压缩、工具执行），使用 [pi-ai](https://github.com/nicemicro/pi-ai) 作为统一的多模型调用层（支持 25+ 提供商），原生支持 Function Calling，并支持 QQ、飞书、钉钉、企业微信等通讯平台。
 
 ## 核心特性
 
 | 模块 | 目录 | 职责 |
 |------|------|------|
-| **Agent** | `src/agents/` | 核心消息循环、上下文压缩、会话管理（基于 pi-agent-core） |
+| **Agent** | `src/agents/` | 核心消息循环、会话管理（基于 pi-coding-agent） |
 | **Providers** | `src/providers/` | 模型解析与映射层（基于 pi-ai，支持 25+ 提供商） |
 | **Tools** | `src/tools/` | 工具注册、参数校验、执行引擎，支持自定义扩展 |
 | **Skills** | `src/skills/` | 技能系统，通过 SKILL.md 注入专业知识和自定义行为 |
@@ -37,18 +37,18 @@ OpenMozi 是一个轻量级的 AI 助手框架，专注于国产生态。基于 
 
 ### 上下文压缩策略
 
-当对话历史超过 Token 限制时，OpenMozi 使用智能压缩：
+基于 [pi-coding-agent](https://github.com/nicemicro/pi-coding-agent) 内置的智能压缩系统：
 
-1. **保留策略** — 始终保留系统提示词和最近 N 轮对话
-2. **摘要压缩** — 将早期对话压缩为摘要，保留关键信息
-3. **工具结果裁剪** — 截断过长的工具返回结果
-4. **配对验证** — 确保 tool_call 和 tool_result 成对出现
+1. **自动压缩** — 当上下文接近 Token 限制时自动触发
+2. **摘要生成** — 将早期对话压缩为摘要，保留关键信息
+3. **会话持久化** — 支持 JSONL 格式会话存储和恢复
+4. **分支管理** — 支持会话分支和历史回溯
 
 ## 核心特性
 
 - **多模型支持** — 基于 pi-ai 统一调用层，支持 DeepSeek、豆包、DashScope (Qwen)、智谱AI、Kimi、阶跃星辰、MiniMax，以及 OpenAI/Anthropic/OpenRouter/Groq 等 25+ 提供商
 - **多平台通道** — QQ、飞书、钉钉、企业微信，统一的消息处理接口
-- **Function Calling** — 基于 pi-agent-core 的 Agent 运行时，原生支持工具调用循环
+- **Function Calling** — 基于 pi-coding-agent 的 Agent 运行时，原生支持工具调用循环
 - **25 内置工具** — 文件读写、Bash 执行、代码搜索、网页获取、图像分析、浏览器自动化、记忆系统、定时任务等
 - **Skills 技能系统** — 通过 SKILL.md 文件扩展 Agent 能力，支持自定义行为和专业知识注入
 - **记忆系统** — 跨会话长期记忆，自动记住用户偏好和重要信息
@@ -648,7 +648,7 @@ mozi logs --level error # 只显示错误日志
 
 ```
 src/
-├── agents/        # Agent 核心（基于 pi-agent-core，消息循环、上下文压缩、会话管理）
+├── agents/        # Agent 核心（基于 pi-coding-agent，消息循环、会话管理）
 ├── channels/      # 通道适配器（QQ、飞书、钉钉、企业微信）
 ├── providers/     # 模型解析（基于 pi-ai，将配置映射为统一 Model 对象）
 ├── tools/         # 内置工具（文件、Bash、网络、定时任务等）
@@ -800,7 +800,7 @@ flowchart TD
 
 | 模块 | 目录 | 职责 |
 |------|------|------|
-| **Agent** | `src/agents/` | 核心消息循环、上下文压缩、会话管理（基于 pi-agent-core） |
+| **Agent** | `src/agents/` | 核心消息循环、会话管理（基于 pi-coding-agent） |
 | **Providers** | `src/providers/` | 模型解析与映射层（基于 pi-ai，支持 25+ 提供商） |
 | **Tools** | `src/tools/` | 工具注册、参数校验、执行引擎，支持自定义扩展 |
 | **Skills** | `src/skills/` | 技能系统，通过 SKILL.md 注入专业知识和自定义行为 |
@@ -810,18 +810,18 @@ flowchart TD
 
 ### 上下文压缩策略
 
-当对话历史超过 Token 限制时，OpenMozi 使用智能压缩：
+基于 [pi-coding-agent](https://github.com/nicemicro/pi-coding-agent) 内置的智能压缩系统：
 
-1. **保留策略** — 始终保留系统提示词和最近 N 轮对话
-2. **摘要压缩** — 将早期对话压缩为摘要，保留关键信息
-3. **工具结果裁剪** — 截断过长的工具返回结果
-4. **配对验证** — 确保 tool_call 和 tool_result 成对出现
+1. **自动压缩** — 当上下文接近 Token 限制时自动触发
+2. **摘要生成** — 将早期对话压缩为摘要，保留关键信息
+3. **会话持久化** — 支持 JSONL 格式会话存储和恢复
+4. **分支管理** — 支持会话分支和历史回溯
 
 代码结构清晰，注释完善，适合阅读源码学习 Agent 架构设计。
 
 ### 核心功能概览
 
-- **消息循环** — 用户输入 → LLM 推理 → 工具调用 → 结果反馈（基于 pi-agent-core）
+- **消息循环** — 用户输入 → LLM 推理 → 工具调用 → 结果反馈（基于 pi-coding-agent）
 - **上下文管理** — 会话历史、Token 压缩、多轮对话
 - **工具系统** — 函数定义、参数校验、结果处理
 - **记忆系统** — 跨会话长期记忆、存储与检索

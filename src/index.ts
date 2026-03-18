@@ -39,11 +39,6 @@ export {
 export {
   Agent,
   createAgent,
-  estimateTokens,
-  estimateMessagesTokens,
-  summarizeInStages,
-  limitHistoryTurns,
-  pruneHistoryForContextShare,
 } from "./agents/index.js";
 
 // Tools
@@ -52,13 +47,12 @@ export {
   type ToolCall,
   type ToolCallResult,
   type ToolResult,
+  type ToolPolicy,
   registerTool,
   registerTools,
   getTool,
   getAllTools,
   filterToolsByPolicy,
-  executeToolCalls,
-  toolsToOpenAIFunctions,
   createBuiltinTools,
   jsonResult,
   errorResult,

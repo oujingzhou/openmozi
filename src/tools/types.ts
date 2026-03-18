@@ -1,8 +1,13 @@
 /**
  * 工具系统 - 类型定义
+ * 使用 pi-agent-core 的 AgentTool 类型
  */
 
-import type { TSchema } from "@sinclair/typebox";
+import type { TSchema, Static } from "@sinclair/typebox";
+import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
+
+// 重新导出 AgentTool 作为 Tool 类型
+export type Tool<TParameters extends TSchema = TSchema, TDetails = unknown> = AgentTool<TParameters, TDetails>;
 
 /** 工具结果内容项 */
 export type ToolResultContent =
@@ -18,25 +23,6 @@ export interface ToolResult {
 
 /** 工具更新回调 */
 export type ToolUpdateCallback = (partial: { text?: string }) => void;
-
-/** 工具定义 */
-export interface Tool<TParams = Record<string, unknown>> {
-  /** 工具名称 (标识符) */
-  name: string;
-  /** 工具标签 (显示名) */
-  label?: string;
-  /** 工具描述 */
-  description: string;
-  /** 参数 JSON Schema */
-  parameters: TSchema;
-  /** 执行函数 */
-  execute: (
-    toolCallId: string,
-    args: TParams,
-    signal?: AbortSignal,
-    onUpdate?: ToolUpdateCallback
-  ) => Promise<ToolResult>;
-}
 
 /** 工具调用 */
 export interface ToolCall {
@@ -67,3 +53,19 @@ export const TOOL_GROUPS: Record<string, string[]> = {
   "group:media": ["image_analyze"],
   "group:system": ["current_time", "calculator"],
 };
+
+/** 创建 AgentTool 结果 */
+export function createToolResult(text: string, details?: unknown, isError = false): AgentToolResult<unknown> {
+  return {
+    content: [{ type: "text", text }],
+    details: details ?? {},
+  };
+}
+
+/** 创建错误结果 */
+export function createErrorToolResult(error: string): AgentToolResult<unknown> {
+  return {
+    content: [{ type: "text", text: JSON.stringify({ status: "error", error }, null, 2) }],
+    details: { status: "error", error },
+  };
+}
