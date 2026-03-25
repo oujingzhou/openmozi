@@ -1,20 +1,20 @@
 ---
 name: clawhub
-title: ClawdHub Skills Manager
-description: Search, install and manage skills from ClawdHub
+description: "Search, install, update, list, and publish skills using the clawhub CLI for the ClawdHub marketplace. Use when the user asks to find skills, install a skill, browse ClawdHub, manage installed skills, or publish a skill to ClawdHub."
 version: "1.0"
-tags:
-  - clawhub
-  - skills
-  - package-manager
-eligibility:
-  binaries:
+metadata:
+  tags:
     - clawhub
+    - skills
+    - package-manager
+  eligibility:
+    binaries:
+      - clawhub
 ---
 
-You have access to the `clawhub` CLI tool for managing skills from [ClawdHub](https://clawhub.ai), a community hub for sharing AI assistant skills.
+Manage skills from [ClawdHub](https://clawhub.ai) using the `clawhub` CLI.
 
-## Common Commands
+## Commands
 
 ### Search for skills
 
@@ -24,17 +24,19 @@ clawhub search <query>
 
 ### Install a skill
 
-Always use `--workdir` to install into the mozi user skills directory:
+Always target the mozi skills directory:
 
 ```bash
 clawhub install <slug> --workdir ~/.mozi/skills
 ```
 
-### List installed skills
+After install, verify it was added:
 
 ```bash
 clawhub list
 ```
+
+Then inform the user that mozi needs a restart (or skill reload) for the new skill to take effect.
 
 ### Update installed skills
 
@@ -50,6 +52,5 @@ clawhub publish <directory>
 
 ## Important Notes
 
-- Always install skills with `--workdir ~/.mozi/skills` so mozi can discover and load them.
-- After installing a skill, inform the user that mozi needs to be restarted (or skills reloaded) for the new skill to take effect.
-- When the user asks to find or install a skill, use `clawhub search` to help them discover available options on ClawdHub.
+- Always use `--workdir ~/.mozi/skills` for install and update so mozi can discover skills.
+- Use `clawhub search` to help users discover available skills before installing.

@@ -1,23 +1,37 @@
 ---
 name: greeting
-title: 智能问候
-description: 根据时间和场景提供个性化问候
+description: "Generate time-appropriate greetings in Chinese and English — morning, afternoon, evening, and late-night salutations. Use when the user says hello, 你好, 早上好, greets you, or asks for a welcome message."
 version: "1.0"
-tags:
-  - greeting
-  - chat
-priority: 10
+metadata:
+  tags:
+    - greeting
+    - chat
+  priority: 10
 ---
 
-当用户向你打招呼或问候时，请遵循以下规则：
+Generate personalized, time-appropriate greetings when a user says hello or initiates conversation.
 
-1. **根据时间问候**: 根据当前时间使用合适的问候语
-   - 早上 (6:00-11:00): 早上好/Good morning
-   - 中午 (11:00-13:00): 中午好
-   - 下午 (13:00-18:00): 下午好/Good afternoon
-   - 晚上 (18:00-22:00): 晚上好/Good evening
-   - 深夜 (22:00-6:00): 夜深了，注意休息
+## Time-Based Greeting Rules
 
-2. **友好热情**: 保持友好和积极的态度
+Select the greeting based on the current time:
 
-3. **简洁明了**: 问候语简短有力，不要过于冗长
+| Time Range | Chinese | English |
+|---|---|---|
+| 06:00–11:00 | 早上好 | Good morning |
+| 11:00–13:00 | 中午好 | Good afternoon |
+| 13:00–18:00 | 下午好 | Good afternoon |
+| 18:00–22:00 | 晚上好 | Good evening |
+| 22:00–06:00 | 夜深了，注意休息 | It's late — get some rest |
+
+## Tone Guidelines
+
+1. **Friendly and warm** — maintain a positive, welcoming attitude
+2. **Concise** — keep greetings short and natural, avoid verbosity
+
+## Examples
+
+**User**: 你好
+**Response**: 下午好！有什么我可以帮你的吗？
+
+**User**: Hello
+**Response**: Good evening! How can I help you today?
