@@ -114,6 +114,7 @@ function buildOpenAIModel(
   baseUrl: string,
   provider: string,
   headers?: Record<string, string>,
+  compat?: Record<string, unknown>,
 ): Model<"openai-completions"> {
   return {
     id: modelId,
@@ -127,7 +128,8 @@ function buildOpenAIModel(
     contextWindow: modelDef.contextWindow,
     maxTokens: modelDef.maxTokens,
     headers,
-  };
+    ...(compat ? { compat } : {}),
+  } as Model<"openai-completions">;
 }
 
 /** 构建 Anthropic 兼容的 Model 对象 */
@@ -209,6 +211,8 @@ function registerCustomOpenAI(config: Record<string, unknown>): void {
     maxTokens?: number;
     supportsVision?: boolean;
     supportsReasoning?: boolean;
+    /** 透传给 pi-ai 的兼容开关，如 reasoningEffortMap */
+    compat?: Record<string, unknown>;
   }>;
   const headers = config.headers as Record<string, string> | undefined;
 
@@ -225,7 +229,14 @@ function registerCustomOpenAI(config: Record<string, unknown>): void {
       supportsVision: m.supportsVision ?? false,
       supportsReasoning: m.supportsReasoning ?? false,
     };
-    const model = buildOpenAIModel(m.id, modelDef, baseUrl, "custom-openai", headers);
+    const model = buildOpenAIModel(
+      m.id,
+      modelDef,
+      baseUrl,
+      "custom-openai",
+      headers,
+      m.compat as Record<string, unknown> | undefined,
+    );
     modelRegistry.set(`custom-openai:${m.id}`, { model, providerId: "custom-openai" });
   }
 }

@@ -39,6 +39,12 @@ export {
 export {
   Agent,
   createAgent,
+  AgentRuntime,
+  createAgentRuntime,
+  sessionKeyFor,
+  type ChatOptions,
+  type ChatResponse,
+  type StreamEvent,
 } from "./agents/index.js";
 
 // Tools
@@ -110,6 +116,26 @@ export {
 
 // Gateway
 export { Gateway, createGateway, startGateway } from "./gateway/index.js";
+
+// Durable execution (追加日志 + 崩溃恢复 + 投影)
+export {
+  DurableStore,
+  DurableJournal,
+  TurnRecorder,
+  getDurableStore,
+  initDurableStore,
+  buildSnapshot,
+  projectTurns,
+  replayClassFor,
+  DURABLE_FORMAT_VERSION,
+  type DurableRecord,
+  type JournaledRecord,
+  type DurableSessionSnapshot,
+  type DurableTurnView,
+  type DurableLiveEvent,
+  type SequencedLiveEvent,
+  type RecoveryReport,
+} from "./durable/index.js";
 
 // Utils
 export { getLogger, createLogger, setLogger, getChildLogger } from "./utils/logger.js";

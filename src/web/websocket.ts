@@ -1,5 +1,16 @@
 /**
- * WebSocket 服务器 - 提供实时通信
+ * WebSocket 服务器
+ *
+ * 协议（对齐 deepseek-harness 的"命令 + 下行事件"分离）：
+ * - 客户端 -> 服务端：{type:"req", id, method, params}，服务端回 {type:"res", id, ok, payload|error}
+ * - 服务端 -> 客户端：{type:"event", event, payload}
+ *
+ * 关键下行事件：
+ * - connected            连接建立
+ * - session.snapshot     订阅后会立即收到一次完整快照（含进行中的回合）
+ * - session.event        带 seq 的增量事件；客户端检测到 seq 缺口时重新拉快照
+ * - session.status       会话运行状态变更
+ * - chat.delta / chat.error  纯文本流（兼容旧客户端）
  */
 
 import { WebSocketServer, WebSocket } from "ws";
@@ -19,44 +30,55 @@ import type {
   SessionsDeleteParams,
   SessionsResetParams,
   SessionsRestoreParams,
+  SessionsSubscribeParams,
   ConfigInfo,
   ConfigSaveParams,
   ConfigValidateResult,
 } from "./types.js";
 import type { Agent } from "../agents/agent.js";
-import type { MoziConfig, ProviderId } from "../types/index.js";
+import type { MoziConfig, ProviderId, InboundMessageContext } from "../types/index.js";
 import { getAllProviders } from "../providers/index.js";
 import { getAllChannels } from "../channels/index.js";
-import { getSessionStore, type TranscriptMessage } from "../sessions/index.js";
-import { join } from "path";
-import { homedir } from "os";
-import { writeFileSync, readFileSync, existsSync, mkdirSync } from "fs";
-import json5 from "json5";
+import { getSessionStore } from "../sessions/index.js";
+import { fallbackTitle, summarizeTitle } from "../sessions/title.js";
+import { resolveModel, getApiKeyForProvider } from "../providers/model-resolver.js";
+import { getConfigInfo, validateConfig, saveConfig } from "./config-ops.js";
+import { loadConfig, getActiveConfigPath } from "../config/index.js";
+import { initializeProviders } from "../providers/index.js";
+import { initModelResolver } from "../providers/model-resolver.js";
+import { snapshotFromTranscript } from "./legacy-transcript.js";
+import type { SequencedLiveEvent } from "../durable/index.js";
+
 const logger = getChildLogger("websocket");
+
+/** 判定是否为主动取消导致的错误 */
+function isAbortError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  if (error.name === "AbortError" || error.message === "Aborted") return true;
+  return "code" in error && error.code === "ABORT_ERR";
+}
 
 /** WebSocket 客户端 */
 interface WsClient {
   id: string;
   ws: WebSocket;
-  sessionKey: string | null;  // null 表示尚未绑定 session
+  sessionKey: string | null;
   sessionId: string | null;
+  /** 已订阅的会话 */
+  subscribed: Set<string>;
   lastPing: number;
-  /** 当前聊天请求的 AbortController，用于取消 */
+  /** 当前聊天请求的 AbortController */
   currentAbortController: AbortController | null;
 }
 
-/** WebSocket 服务选项 */
 export interface WsServerOptions {
   server: HttpServer;
   agent: Agent;
   config: MoziConfig;
-  /** 心跳检测间隔 (毫秒), 默认 30000 */
   heartbeatInterval?: number;
-  /** 客户端超时时间 (毫秒), 默认 60000 */
   clientTimeout?: number;
 }
 
-/** WebSocket 服务器类 */
 export class WsServer {
   private wss: WebSocketServer;
   private clients = new Map<string, WsClient>();
@@ -65,6 +87,9 @@ export class WsServer {
   private startTime = Date.now();
   private heartbeatInterval: number;
   private clientTimeout: number;
+  private unsubscribeDurable: (() => void) | null = null;
+  /** 各会话最近一次广播的 seq，用于丢弃重复事件 */
+  private lastBroadcastSeq = new Map<string, number>();
 
   constructor(options: WsServerOptions) {
     this.agent = options.agent;
@@ -72,31 +97,30 @@ export class WsServer {
     this.heartbeatInterval = options.heartbeatInterval ?? 30000;
     this.clientTimeout = options.clientTimeout ?? 60000;
 
-    this.wss = new WebSocketServer({
-      server: options.server,
-      path: "/ws",
-    });
+    this.wss = new WebSocketServer({ server: options.server, path: "/ws" });
 
-    this.wss.on("connection", (ws, req) => {
+    this.wss.on("connection", (ws) => {
       this.handleConnection(ws);
     });
 
-    // 心跳检测
+    // 把 durable store 的实时事件转成下行帧
+    this.unsubscribeDurable = this.agent.subscribeDurable((event) => {
+      this.broadcastSessionEvent(event);
+    });
+
     setInterval(() => this.checkHeartbeat(), this.heartbeatInterval);
 
     logger.info("WebSocket server initialized");
   }
 
-  /** 处理新连接 */
   private async handleConnection(ws: WebSocket): Promise<void> {
     const clientId = generateId("client");
-
-    // 不立即创建 session，等待客户端发送 sessions.restore 或 chat.send 时再创建
     const client: WsClient = {
       id: clientId,
       ws,
       sessionKey: null,
       sessionId: null,
+      subscribed: new Set(),
       lastPing: Date.now(),
       currentAbortController: null,
     };
@@ -104,350 +128,465 @@ export class WsServer {
     this.clients.set(clientId, client);
     logger.info({ clientId }, "Client connected");
 
-    // 发送欢迎消息 - 不包含 session 信息，等待客户端决定
-    this.sendEvent(ws, "connected", {
-      clientId,
-      version: "1.0.0",
-    });
+    this.sendEvent(ws, "connected", { clientId, version: "1.0.0" });
 
     ws.on("message", (data) => {
-      this.handleMessage(client, data.toString());
+      void this.handleMessage(client, data.toString());
     });
-
     ws.on("close", () => {
       this.clients.delete(clientId);
       logger.info({ clientId }, "Client disconnected");
     });
-
     ws.on("error", (error) => {
       logger.error({ clientId, error }, "WebSocket error");
     });
-
     ws.on("pong", () => {
       client.lastPing = Date.now();
     });
   }
 
-  /** 处理消息 */
   private async handleMessage(client: WsClient, data: string): Promise<void> {
     try {
       const frame = JSON.parse(data) as WsFrame;
-
-      if (frame.type === "req") {
-        await this.handleRequest(client, frame);
-      }
+      if (frame.type === "req") await this.handleRequest(client, frame);
     } catch (error) {
       logger.error({ error, data }, "Failed to handle message");
     }
   }
 
-  /** 处理请求 */
-  private async handleRequest(
-    client: WsClient,
-    frame: WsRequestFrame
-  ): Promise<void> {
+  private async handleRequest(client: WsClient, frame: WsRequestFrame): Promise<void> {
     const { id, method, params } = frame;
 
     try {
-      let result: unknown;
-
-      switch (method) {
-        case "chat.send":
-          result = await this.handleChatSend(client, params as ChatSendParams);
-          break;
-        case "chat.cancel":
-          result = this.handleChatCancel(client);
-          break;
-        case "chat.clear":
-          result = await this.handleChatClear(client);
-          break;
-        case "sessions.list":
-          result = await this.handleSessionsList(params as SessionsListParams);
-          break;
-        case "sessions.history":
-          result = await this.handleSessionsHistory(params as SessionsHistoryParams);
-          break;
-        case "sessions.delete":
-          result = await this.handleSessionsDelete(params as SessionsDeleteParams);
-          break;
-        case "sessions.reset":
-          result = await this.handleSessionsReset(params as SessionsResetParams);
-          break;
-        case "sessions.restore":
-          result = await this.handleSessionsRestore(client, params as SessionsRestoreParams);
-          break;
-        case "status.get":
-          result = this.getSystemStatus();
-          break;
-        case "session.info":
-          result = this.getSessionInfo(client);
-          break;
-        case "config.get":
-          result = this.getConfigInfo();
-          break;
-        case "config.validate":
-          result = this.validateConfig(params as ConfigSaveParams);
-          break;
-        case "config.save":
-          result = await this.saveConfig(params as ConfigSaveParams);
-          break;
-        case "ping":
-          result = { pong: Date.now() };
-          break;
-        default:
-          throw new Error(`Unknown method: ${method}`);
-      }
-
+      const result = await this.dispatch(client, method, params);
       this.sendResponse(client.ws, id, true, result);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      this.sendResponse(client.ws, id, false, undefined, {
-        code: "ERROR",
-        message,
-      });
+      logger.warn({ method, error: message }, "Request failed");
+      this.sendResponse(client.ws, id, false, undefined, { code: "ERROR", message });
+    }
+  }
+
+  private async dispatch(client: WsClient, method: string, params: unknown): Promise<unknown> {
+    switch (method) {
+      case "chat.send":
+        return this.handleChatSend(client, params as ChatSendParams);
+      case "chat.cancel":
+        return this.handleChatCancel(client);
+      case "chat.dequeue":
+        return this.handleChatDequeue(client, params as { queueId?: string });
+      case "chat.steer":
+        return this.handleChatSteer(client, params as { queueId?: string });
+      case "chat.clear":
+        return this.handleChatClear(client);
+      case "sessions.list":
+        return this.handleSessionsList(params as SessionsListParams | undefined);
+      case "sessions.history":
+        return this.handleSessionsHistory(params as SessionsHistoryParams);
+      case "sessions.delete":
+        return this.handleSessionsDelete(params as SessionsDeleteParams);
+      case "sessions.reset":
+        return this.handleSessionsReset(params as SessionsResetParams);
+      case "sessions.restore":
+        return this.handleSessionsRestore(client, params as SessionsRestoreParams);
+      case "sessions.subscribe":
+        return this.handleSessionsSubscribe(client, params as SessionsSubscribeParams);
+      case "sessions.unsubscribe":
+        return this.handleSessionsUnsubscribe(client, params as SessionsSubscribeParams);
+      case "status.get":
+        return this.getSystemStatus();
+      case "session.info":
+        return this.getSessionInfo(client);
+      case "config.get":
+        return this.getConfigInfo();
+      case "config.validate":
+        return this.validateConfig(params as ConfigSaveParams);
+      case "config.save":
+        return this.saveConfig(params as ConfigSaveParams);
+      case "ping":
+        return { pong: Date.now() };
+      default:
+        throw new Error(`Unknown method: ${method}`);
     }
   }
 
   /** 确保客户端有 session，如果没有则创建 */
   private async ensureSession(client: WsClient): Promise<void> {
-    if (client.sessionKey && client.sessionId) {
-      return;
-    }
+    if (client.sessionKey && client.sessionId) return;
 
     const store = getSessionStore();
-    const sessionKey = `webchat:${client.id}`;
+    const sessionKey = client.sessionKey ?? `webchat:${client.id}`;
     const session = await store.getOrCreate(sessionKey);
 
     client.sessionKey = sessionKey;
     client.sessionId = session.sessionId;
-
     logger.info({ clientId: client.id, sessionKey, sessionId: session.sessionId }, "Session created");
   }
 
-  /** 处理聊天发送 */
+  /** 处理聊天发送：事件通过 durable 订阅广播，这里只负责启动回合 */
   private async handleChatSend(
     client: WsClient,
     params: ChatSendParams
-  ): Promise<{ messageId: string }> {
-    // 确保有 session
+  ): Promise<{ messageId: string; turnId?: string; queued?: boolean; queueId?: string }> {
+    if (params.sessionKey) {
+      client.sessionKey = params.sessionKey;
+      const store = getSessionStore();
+      const session = await store.getOrCreate(params.sessionKey);
+      client.sessionId = session.sessionId;
+    }
     await this.ensureSession(client);
 
-    const { message } = params;
+    const { message, requestId } = params;
+    if (!message?.trim()) throw new Error("message 不能为空");
+
     const messageId = generateId("msg");
     const store = getSessionStore();
 
-    // 构造消息上下文
-    // 使用 sessionKey 作为 senderId，确保会话恢复后 Agent 能找到历史上下文
+    // sessionKey 同时作为 senderId，使 AgentRuntime 推导出一致的会话
     const stableSenderId = client.sessionKey!.replace("webchat:", "");
 
-    logger.debug(
-      { clientId: client.id, sessionKey: client.sessionKey, stableSenderId, message: message.slice(0, 100) },
-      "Chat send"
-    );
-
-    // 保存用户消息到 transcript
-    const userMessage: TranscriptMessage = {
-      id: messageId,
-      role: "user",
-      content: message,
-      timestamp: Date.now(),
-    };
-    await store.appendTranscript(client.sessionId!, client.sessionKey!, userMessage);
-
-    const context = {
-      channelId: "webchat" as const,
+    const context: InboundMessageContext = {
+      channelId: "webchat",
       chatId: client.sessionKey!,
       messageId,
       senderId: stableSenderId,
       senderName: "WebChat User",
       content: message,
-      chatType: "direct" as const,
+      chatType: "direct",
       timestamp: Date.now(),
     };
 
+    const sessionKey = client.sessionKey!;
+    const sessionId = client.sessionId!;
+
+    // 回合运行期间：默认排队（followUp），显式 steer 则中断当前回合
+    if (this.agent.isBusy(sessionKey)) {
+      const behavior = params.whenBusy === "steer" ? "steer" : "followUp";
+      const queueId = this.agent.enqueueMessage({
+        sessionKey,
+        content: message,
+        behavior,
+        context,
+      });
+      return { messageId, queued: true, queueId };
+    }
+
+    const userMessage = {
+      id: messageId,
+      role: "user" as const,
+      content: message,
+      timestamp: Date.now(),
+    };
+    await store.appendTranscript(sessionId, sessionKey, userMessage);
+
     const controller = new AbortController();
     client.currentAbortController = controller;
+    const ws = client.ws;
 
-    try {
-      const stream = this.agent.processMessageStream(context, { signal: controller.signal });
+    // 回合在后台跑；事件通过 durable 订阅推送
+    void (async () => {
       let fullContent = "";
-
-      for await (const delta of stream) {
-        fullContent += delta;
-        this.sendEvent(client.ws, "chat.delta", {
-          sessionId: client.sessionId,
-          delta,
-          done: false,
-        } as ChatDeltaEvent);
-      }
-
-      client.currentAbortController = null;
-
-      // 保存助手消息到 transcript
-      const assistantMessage: TranscriptMessage = {
-        id: generateId("msg"),
-        role: "assistant",
-        content: fullContent,
-        timestamp: Date.now(),
-      };
-      await store.appendTranscript(client.sessionId!, client.sessionKey!, assistantMessage);
-
-      this.sendEvent(client.ws, "chat.delta", {
-        sessionId: client.sessionId,
-        delta: "",
-        done: true,
-      } as ChatDeltaEvent);
-    } catch (error) {
-      client.currentAbortController = null;
-      const isAborted =
-        error instanceof Error &&
-        (error.name === "AbortError" || error.message === "Aborted" || (error as { code?: string }).code === "ABORT_ERR");
-      if (isAborted) {
-        this.sendEvent(client.ws, "chat.delta", {
-          sessionId: client.sessionId,
-          delta: "",
-          done: true,
-          cancelled: true,
-        } as ChatDeltaEvent);
-      } else {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        this.sendEvent(client.ws, "chat.error", {
-          sessionId: client.sessionId,
-          error: errorMessage,
+      try {
+        const stream = this.agent.processMessageEvents(context, {
+          signal: controller.signal,
+          requestId,
+          source: "webchat",
         });
+        // 纯文本增量仍走 chat.delta，供旧客户端渲染
+        for await (const event of stream) {
+          if (event.type === "text_delta") {
+            fullContent += event.delta;
+            this.sendEvent(ws, "chat.delta", {
+              sessionId,
+              delta: event.delta,
+              done: false,
+            } satisfies ChatDeltaEvent);
+          }
+        }
+        client.currentAbortController = null;
+
+        const assistantMessage = {
+          id: generateId("msg"),
+          role: "assistant" as const,
+          content: fullContent,
+          timestamp: Date.now(),
+        };
+        await store.appendTranscript(sessionId, sessionKey, assistantMessage);
+
+        this.sendEvent(ws, "chat.delta", { sessionId, delta: "", done: true } satisfies ChatDeltaEvent);
+
+        // 首轮结束后补一个可读的会话标题（不阻塞对话）
+        void this.ensureSessionTitle(sessionKey, message, fullContent);
+      } catch (error) {
+        client.currentAbortController = null;
+        const isAborted = isAbortError(error);
+
+        if (isAborted) {
+          this.sendEvent(ws, "chat.delta", {
+            sessionId,
+            delta: "",
+            done: true,
+            cancelled: true,
+          } satisfies ChatDeltaEvent);
+        } else {
+          const message = error instanceof Error ? error.message : String(error);
+          this.sendEvent(ws, "chat.error", { sessionId, error: message });
+        }
       }
-    }
+    })();
 
     return { messageId };
   }
 
-  /** 取消当前客户端的聊天请求 */
-  private handleChatCancel(client: WsClient): { cancelled: boolean } {
-    if (client.currentAbortController) {
-      client.currentAbortController.abort();
-      client.currentAbortController = null;
-      return { cancelled: true };
+  /**
+   * 补会话标题。
+   * 先写入基于首条消息的兜底标题，再尝试用模型生成摘要；
+   * 用户自定义的标题不会被覆盖。
+   */
+  private async ensureSessionTitle(
+    sessionKey: string,
+    userText: string,
+    assistantText: string
+  ): Promise<void> {
+    try {
+      const store = getSessionStore();
+      const entry = await store.get(sessionKey);
+      if (!entry) return;
+
+      if (!entry.label || entry.labelSource === "fallback") {
+        await store.setLabel(sessionKey, fallbackTitle(userText), "fallback");
+        this.broadcast("session.updated", { sessionKey });
+      }
+
+      if (entry.labelSource === "model" || entry.labelSource === "user") return;
+      if (this.config.sessions?.autoTitle === false) return;
+
+      const model = resolveModel(this.config.agent.defaultProvider, this.config.agent.defaultModel);
+      const apiKey = getApiKeyForProvider(this.config.agent.defaultProvider);
+      if (!model || !apiKey) return;
+
+      const title = await summarizeTitle({ model, apiKey, userText, assistantText });
+      if (!title) return;
+
+      await store.setLabel(sessionKey, title, "model");
+      this.broadcast("session.updated", { sessionKey });
+    } catch (error) {
+      logger.debug({ error, sessionKey }, "生成会话标题失败");
     }
-    return { cancelled: false };
   }
 
-  /** 处理清除会话 */
-  private async handleChatClear(client: WsClient): Promise<{ success: boolean; sessionKey: string; sessionId: string }> {
-    // 确保有 session
-    await this.ensureSession(client);
+  /** 删除排队消息 */
+  private handleChatDequeue(client: WsClient, params: { queueId?: string }): { removed: boolean } {
+    if (!client.sessionKey || !params.queueId) return { removed: false };
+    return { removed: this.agent.dequeueMessage(client.sessionKey, params.queueId) };
+  }
 
+  /** 把排队消息升级为插入（中断当前回合） */
+  private handleChatSteer(client: WsClient, params: { queueId?: string }): { steered: boolean } {
+    if (!client.sessionKey || !params.queueId) return { steered: false };
+    return { steered: this.agent.steerQueued(client.sessionKey, params.queueId) };
+  }
+
+  private handleChatCancel(client: WsClient): { cancelled: boolean } {
+    if (!client.currentAbortController) return { cancelled: false };
+    client.currentAbortController.abort();
+    client.currentAbortController = null;
+    return { cancelled: true };
+  }
+
+  private async handleChatClear(
+    client: WsClient
+  ): Promise<{ success: boolean; sessionKey: string; sessionId: string }> {
+    await this.ensureSession(client);
     const store = getSessionStore();
     const oldSessionKey = client.sessionKey!;
 
-    // 重置会话
-    const newSession = await store.reset(client.sessionKey!);
+    // 重置 durable 日志与 pi 上下文
+    await this.agent.clearSession({
+      channelId: "webchat",
+      chatId: oldSessionKey,
+      messageId: generateId("msg"),
+      senderId: oldSessionKey.replace("webchat:", ""),
+      senderName: "WebChat User",
+      content: "",
+      chatType: "direct",
+      timestamp: Date.now(),
+    });
 
-    // 更新客户端会话 ID 和 sessionKey
+    const newSession = await store.reset(oldSessionKey);
     client.sessionKey = newSession.sessionKey;
     client.sessionId = newSession.sessionId;
 
     logger.info(
-      { clientId: client.id, oldSessionKey, newSessionKey: newSession.sessionKey, newSessionId: newSession.sessionId },
+      { clientId: client.id, oldSessionKey, newSessionKey: newSession.sessionKey },
       "Chat cleared, new session created"
     );
-
-    return {
-      success: true,
-      sessionKey: newSession.sessionKey,
-      sessionId: newSession.sessionId,
-    };
+    return { success: true, sessionKey: newSession.sessionKey, sessionId: newSession.sessionId };
   }
 
-  /** 处理会话列表 */
   private async handleSessionsList(params?: SessionsListParams): Promise<unknown> {
     const store = getSessionStore();
-    const sessions = await store.list({
+    let sessions = await store.list({
       limit: params?.limit,
       activeMinutes: params?.activeMinutes,
       search: params?.search,
     });
-    return { sessions };
+
+    // 存量会话补兜底标题：优先用首条用户消息，避免侧边栏全是 session_xxx
+    let backfilled = false;
+    for (const session of sessions.slice(0, 100)) {
+      if (session.label) continue;
+      const messages = await store.loadTranscript(session.sessionId);
+      const firstUser = messages.find((message) => message.role === "user" && typeof message.content === "string");
+      if (!firstUser) continue;
+      await store.setLabel(session.sessionKey, fallbackTitle(String(firstUser.content)), "fallback");
+      backfilled = true;
+    }
+    if (backfilled) {
+      sessions = await store.list({
+        limit: params?.limit,
+        activeMinutes: params?.activeMinutes,
+        search: params?.search,
+      });
+    }
+
+    // 附加 durable 运行状态，供侧边栏状态点使用
+    const enriched = sessions.map((session) => {
+      const snapshot = this.agent.getSnapshot(session.sessionKey);
+      return {
+        ...session,
+        running: snapshot?.running ?? false,
+        turnCount: snapshot?.turns.length ?? 0,
+      };
+    });
+
+    return { sessions: enriched };
   }
 
-  /** 处理获取会话历史 */
+  /** 会话历史：durable 回合投影优先，缺省回落到转录文件 */
   private async handleSessionsHistory(params: SessionsHistoryParams): Promise<unknown> {
     const store = getSessionStore();
     const session = await store.get(params.sessionKey);
-    if (!session) {
-      throw new Error(`Session not found: ${params.sessionKey}`);
-    }
+    if (!session) throw new Error(`Session not found: ${params.sessionKey}`);
+
+    this.agent.openDurableSession(params.sessionKey);
+    const recorded = this.agent.getSnapshot(params.sessionKey);
     const messages = await store.loadTranscript(session.sessionId);
+    // 升级前的会话没有 durable 日志，用转录做只读展示回退
+    const snapshot =
+      recorded && recorded.turns.length > 0
+        ? recorded
+        : messages.length > 0
+          ? snapshotFromTranscript(params.sessionKey, session.sessionId, messages)
+          : recorded;
+
     return {
       sessionKey: params.sessionKey,
       sessionId: session.sessionId,
+      snapshot,
       messages,
     };
   }
 
-  /** 处理删除会话 */
   private async handleSessionsDelete(params: SessionsDeleteParams): Promise<{ success: boolean }> {
-    const store = getSessionStore();
-    await store.delete(params.sessionKey);
+    await getSessionStore().delete(params.sessionKey);
     return { success: true };
   }
 
-  /** 处理重置会话 */
   private async handleSessionsReset(params: SessionsResetParams): Promise<unknown> {
-    const store = getSessionStore();
-    const session = await store.reset(params.sessionKey);
-    return {
-      success: true,
-      sessionKey: session.sessionKey,
-      sessionId: session.sessionId,
-    };
+    const session = await getSessionStore().reset(params.sessionKey);
+    return { success: true, sessionKey: session.sessionKey, sessionId: session.sessionId };
   }
 
-  /** 处理恢复会话 */
+  /** 恢复会话：返回快照，客户端据此重建整个对话 */
   private async handleSessionsRestore(client: WsClient, params: SessionsRestoreParams): Promise<unknown> {
     const store = getSessionStore();
     const session = await store.get(params.sessionKey);
-    if (!session) {
-      throw new Error(`Session not found: ${params.sessionKey}`);
-    }
+    if (!session) throw new Error(`Session not found: ${params.sessionKey}`);
 
-    // 更新客户端会话
     client.sessionKey = session.sessionKey;
     client.sessionId = session.sessionId;
 
-    // 加载历史消息
+    this.agent.openDurableSession(session.sessionKey);
+    const recorded = this.agent.getSnapshot(session.sessionKey);
     const messages = await store.loadTranscript(session.sessionId);
+    const snapshot =
+      recorded && recorded.turns.length > 0
+        ? recorded
+        : messages.length > 0
+          ? snapshotFromTranscript(session.sessionKey, session.sessionId, messages)
+          : recorded;
 
-    // 恢复 Agent 的会话上下文
-    // Agent 使用 "webchat:{senderId}" 作为 sessionKey，对于 direct chat
-    // senderId 从 sessionKey 中提取（去掉 "webchat:" 前缀）
-    const agentSessionKey = session.sessionKey; // webchat:session_xxx
-    const transcriptMessages = messages
-      .filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
-      .map((m) => ({ role: m.role as "user" | "assistant", content: m.content as string }));
-
-    if (transcriptMessages.length > 0) {
-      this.agent.restoreSessionFromTranscript(agentSessionKey, transcriptMessages);
-    }
-
-    return {
-      sessionKey: session.sessionKey,
-      sessionId: session.sessionId,
-      messages,
-    };
+    // 模型上下文由 pi 的会话文件承担（createAgentSession 会自动恢复）。
+    // 不要用转录重建：伪造的消息缺少 usage 等字段，会让 pi 的压缩检查抛错。
+    return { sessionKey: session.sessionKey, sessionId: session.sessionId, snapshot, messages };
   }
 
-  /** 获取系统状态 */
+  /** 订阅会话事件：立刻回一份快照，随后推送增量 */
+  private handleSessionsSubscribe(client: WsClient, params: SessionsSubscribeParams): unknown {
+    const results: Array<{ sessionKey: string; lastSeq: number }> = [];
+    for (const sessionKey of params.sessionKeys ?? []) {
+      this.agent.openDurableSession(sessionKey);
+      client.subscribed.add(sessionKey);
+
+      const snapshot = this.agent.getSnapshot(sessionKey);
+      const lastSeq = snapshot?.seq ?? 0;
+      results.push({ sessionKey, lastSeq });
+
+      this.sendEvent(client.ws, "session.subscribed", { sessionKey, lastSeq });
+      if (snapshot) this.sendEvent(client.ws, "session.snapshot", { sessionKey, snapshot });
+    }
+    return { subscriptions: results };
+  }
+
+  private handleSessionsUnsubscribe(client: WsClient, params: SessionsSubscribeParams): unknown {
+    for (const sessionKey of params.sessionKeys ?? []) {
+      client.subscribed.delete(sessionKey);
+    }
+    return { subscriptions: Array.from(client.subscribed) };
+  }
+
+  /** 把 durable 事件投递给订阅了该会话的客户端 */
+  private broadcastSessionEvent(event: SequencedLiveEvent): void {
+    // 瞬时事件（流式增量）复用当前序号，不能被"序号去重"挡掉
+    if (!event.transient) {
+      const previous = this.lastBroadcastSeq.get(event.sessionKey) ?? 0;
+      if (event.seq > 0 && event.seq <= previous) return;
+      if (event.seq > 0) this.lastBroadcastSeq.set(event.sessionKey, event.seq);
+    }
+
+    const frame: WsEventFrame = {
+      type: "event",
+      event: "session.event",
+      payload: event,
+    };
+    const data = JSON.stringify(frame);
+
+    for (const client of this.clients.values()) {
+      if (client.ws.readyState !== WebSocket.OPEN) continue;
+      if (!client.subscribed.has(event.sessionKey) && client.sessionKey !== event.sessionKey) continue;
+      client.ws.send(data);
+    }
+
+    // 回合边界额外广播运行状态
+    if (event.type === "turn_start" || event.type === "turn_end") {
+      this.broadcast("session.status", {
+        sessionKey: event.sessionKey,
+        running: event.type === "turn_start",
+      });
+    }
+  }
+
   private getSystemStatus(): SystemStatus {
-    const providers = getAllProviders().map((p) => ({
-      id: p.id,
-      name: p.name,
+    const providers = getAllProviders().map((provider) => ({
+      id: provider.id,
+      name: provider.name,
       available: true,
     }));
-
-    const channels = getAllChannels().map((c) => ({
-      id: c.id,
-      name: c.id,  // 使用 id 作为 name
-      connected: true,  // 简化：假设已配置的通道都是连接的
+    const channels = getAllChannels().map((channel) => ({
+      id: channel.id,
+      name: channel.id,
+      connected: true,
     }));
 
     return {
@@ -456,440 +595,59 @@ export class WsServer {
       providers,
       channels,
       sessions: this.clients.size,
+      durableDir: this.config.sessions?.directory ?? "~/.mozi/sessions",
     };
   }
 
-  /** 获取会话信息 */
   private getSessionInfo(client: WsClient): unknown {
-    const context = {
-      channelId: "webchat" as const,
+    const context: InboundMessageContext = {
+      channelId: "webchat",
       chatId: client.sessionKey || `webchat:${client.id}`,
       messageId: "",
       senderId: client.id,
       senderName: "",
       content: "",
-      chatType: "direct" as const,
+      chatType: "direct",
       timestamp: Date.now(),
     };
-
     const info = this.agent.getSessionInfo(context);
-    return {
-      sessionKey: client.sessionKey,
-      sessionId: client.sessionId,
-      ...info,
-    };
+    return { sessionKey: client.sessionKey, sessionId: client.sessionId, ...info };
   }
 
-  /** 获取配置信息（脱敏） */
   private getConfigInfo(): ConfigInfo {
-    // 提供商信息（脱敏 API Key）
-    const providers: Record<string, ConfigInfo["providers"][string]> = {};
-    for (const [id, config] of Object.entries(this.config.providers)) {
-      providers[id] = {
-        id,
-        name: (config as any).name || id,
-        baseUrl: (config as any).baseUrl,
-        hasApiKey: Boolean((config as any).apiKey),
-        groupId: (config as any).groupId,
-      };
-    }
-
-    // 通道信息（脱敏敏感字段）
-    const channels: Record<string, ConfigInfo["channels"][string]> = {};
-    const channelNames: Record<string, string> = {
-      feishu: "飞书",
-      dingtalk: "钉钉",
-      qq: "QQ",
-      wecom: "企业微信",
-    };
-    for (const [id, config] of Object.entries(this.config.channels)) {
-      if (config) {
-        const hasConfig = (
-          // 飞书
-          (id === "feishu" && ((config as any).appId || (config as any).appSecret)) ||
-          // 钉钉
-          (id === "dingtalk" && ((config as any).appKey || (config as any).appSecret || (config as any).robotCode)) ||
-          // QQ
-          (id === "qq" && ((config as any).appId || (config as any).clientSecret)) ||
-          // 企业微信
-          (id === "wecom" && ((config as any).corpId || (config as any).corpSecret || (config as any).agentId || (config as any).token || (config as any).encodingAESKey))
-        );
-        const channelConfig: ConfigInfo["channels"][string] = {
-          id,
-          name: channelNames[id] || id,
-          hasConfig,
-          enabled: hasConfig && ((config as any).enabled ?? true),
-        };
-        // 添加非敏感字段用于编辑
-        if (id === "feishu") {
-          (channelConfig as any).appId = (config as any).appId;
-          // appSecret 不返回
-        } else if (id === "dingtalk") {
-          (channelConfig as any).appKey = (config as any).appKey;
-          (channelConfig as any).robotCode = (config as any).robotCode;
-        } else if (id === "qq") {
-          (channelConfig as any).appId = (config as any).appId;
-          (channelConfig as any).sandbox = (config as any).sandbox;
-          // clientSecret 不返回
-        } else if (id === "wecom") {
-          (channelConfig as any).corpId = (config as any).corpId;
-          (channelConfig as any).agentId = (config as any).agentId;
-          (channelConfig as any).token = (config as any).token;
-          (channelConfig as any).encodingAESKey = (config as any).encodingAESKey;
-          // corpSecret 不返回
-        }
-        channels[id] = channelConfig;
-      }
-    }
-
-    // Agent 配置
-    const agent = {
-      defaultProvider: this.config.agent.defaultProvider,
-      defaultModel: this.config.agent.defaultModel,
-      temperature: this.config.agent.temperature,
-      maxTokens: this.config.agent.maxTokens,
-      systemPrompt: this.config.agent.systemPrompt,
-    };
-
-    // 服务器配置
-    const server = {
-      port: this.config.server.port,
-      host: this.config.server.host || "0.0.0.0",
-    };
-
-    // 日志配置
-    const logging = {
-      level: this.config.logging.level,
-    };
-
-    // 记忆系统配置
-    const memory = {
-      enabled: this.config.memory?.enabled,
-      directory: this.config.memory?.directory,
-      embeddingModel: this.config.memory?.embeddingModel,
-      embeddingProvider: this.config.memory?.embeddingProvider,
-    };
-
-    // Skills 配置
-    const skills = {
-      enabled: this.config.skills?.enabled,
-      userDir: this.config.skills?.userDir,
-      workspaceDir: this.config.skills?.workspaceDir,
-      disabled: this.config.skills?.disabled,
-      only: this.config.skills?.only,
-    };
-
-    return {
-      providers,
-      channels,
-      agent,
-      server,
-      logging,
-      memory: memory as ConfigInfo["memory"],
-      skills: skills as ConfigInfo["skills"],
-    };
+    return getConfigInfo(this.config);
   }
 
-  /** 验证配置 */
   private validateConfig(params: ConfigSaveParams): ConfigValidateResult {
-    const errors: string[] = [];
-    const warnings: string[] = [];
-
-    // 验证提供商
-    if (params.providers) {
-      let hasApiKey = false;
-      for (const [id, p] of Object.entries(params.providers)) {
-        if (p.hasApiKey) {
-          hasApiKey = true;
-        }
-        // 验证自定义 OpenAI/Anthropic 需要 baseUrl
-        if (p.hasApiKey && (id === "custom-openai" || id === "custom-anthropic")) {
-          if (!p.baseUrl) {
-            errors.push(`${id} 需要 baseUrl 配置`);
-          }
-        }
-      }
-      if (!hasApiKey && Object.keys(params.providers).length > 0) {
-        warnings.push("没有配置任何 API Key，将无法使用模型功能");
-      }
-    }
-
-    // 验证通道
-    if (params.channels) {
-      for (const [id, c] of Object.entries(params.channels)) {
-        if (c.hasConfig) {
-          if (id === "feishu" && !c.appId) {
-            errors.push("飞书需要 App ID");
-          }
-          if (id === "dingtalk" && !c.appKey) {
-            errors.push("钉钉需要 App Key");
-          }
-          if (id === "qq" && !c.appId) {
-            errors.push("QQ 需要 App ID");
-          }
-          if (id === "wecom" && !c.corpId) {
-            errors.push("企业微信需要 Corp ID");
-          }
-        }
-      }
-    }
-
-    // 验证 Agent 配置
-    if (params.agent) {
-      const validProviders = [
-        "deepseek", "doubao", "minimax", "kimi", "stepfun", "modelscope",
-        "dashscope", "zhipu", "openai", "ollama", "openrouter",
-        "together", "groq", "custom-openai", "custom-anthropic",
-      ];
-      if (params.agent.defaultProvider && !validProviders.includes(params.agent.defaultProvider)) {
-        errors.push(`无效的提供商: ${params.agent.defaultProvider}`);
-      }
-      if (params.agent.temperature !== undefined && (params.agent.temperature < 0 || params.agent.temperature > 2)) {
-        errors.push("temperature 必须在 0 到 2 之间");
-      }
-      if (params.agent.maxTokens !== undefined && params.agent.maxTokens < 1) {
-        errors.push("maxTokens 必须大于 0");
-      }
-    }
-
-    // 验证服务器配置
-    if (params.server) {
-      if (params.server.port < 1 || params.server.port > 65535) {
-        errors.push("端口必须在 1 到 65535 之间");
-      }
-    }
-
-    // 验证日志配置
-    if (params.logging) {
-      const validLevels = ["debug", "info", "warn", "error"];
-      if (params.logging.level && !validLevels.includes(params.logging.level)) {
-        errors.push(`无效的日志级别: ${params.logging.level}`);
-      }
-    }
-
-    return {
-      valid: errors.length === 0,
-      errors,
-      warnings,
-    };
+    return validateConfig(params);
   }
 
-  /** 保存配置到文件 */
-  private async saveConfig(params: ConfigSaveParams): Promise<{ success: boolean; message: string; requiresRestart?: boolean }> {
-    const moziDir = join(homedir(), ".mozi");
-    const configPath = join(moziDir, "config.local.json5");
+  private async saveConfig(
+    params: ConfigSaveParams
+  ): Promise<{ success: boolean; message: string; requiresRestart?: boolean }> {
+    const result = await saveConfig(params, this.config);
+    if (!result.success) return result;
 
-    // 验证配置
-    const validation = this.validateConfig(params);
-    if (!validation.valid) {
-      return {
-        success: false,
-        message: "配置验证失败: " + validation.errors.join("; "),
-      };
-    }
+    // 保存后立即重载：否则界面刷新拿到的仍是旧配置（新加的提供商看不到）
+    try {
+      const fresh = loadConfig({ configPath: getActiveConfigPath() });
+      this.config = fresh;
+      initializeProviders(fresh);
+      initModelResolver(fresh);
 
-    // 先读取现有配置，然后合并
-    let existingConfig: Partial<MoziConfig> = {};
-    if (existsSync(configPath)) {
-      try {
-        existingConfig = json5.parse(readFileSync(configPath, "utf-8"));
-      } catch (e) {
-        logger.warn({ error: e }, "Failed to parse existing config, creating new");
-      }
-    }
-
-    // 构建要保存的配置
-    const configToSave: Partial<MoziConfig> = { ...existingConfig };
-
-    // 更新提供商
-    if (params.providers) {
-      const providers: MoziConfig["providers"] = {};
-      // 保留原有的未修改的提供商
-      if (existingConfig.providers) {
-        for (const [id, p] of Object.entries(existingConfig.providers)) {
-          if (id && p) {
-            providers[id] = p;
-          }
-        }
-      }
-      // 更新/添加新的提供商
-      for (const [id, p] of Object.entries(params.providers)) {
-        if (!id || !p.hasApiKey) {
-          // 删除提供商
-          delete providers[id];
-          continue;
-        }
-        // 从现有配置中获取 apiKey
-        const existing = (existingConfig.providers as any)?.[id];
-        providers[id] = {
-          ...existing,
-          baseUrl: p.baseUrl,
-          ...(p.groupId ? { groupId: p.groupId } : {}),
-        };
-        // 优先使用前端发送的 apiKey（新增时），否则保留原有 apiKey
-        const apiKey = (p as any).apiKey || existing?.apiKey;
-        if (apiKey) {
-          (providers[id] as any).apiKey = apiKey;
-        }
-      }
-      configToSave.providers = providers;
-    }
-
-    // 更新通道
-    if (params.channels) {
-      const channels: MoziConfig["channels"] = {
-        feishu: existingConfig.channels?.feishu,
-        dingtalk: existingConfig.channels?.dingtalk,
-        qq: existingConfig.channels?.qq,
-        wecom: existingConfig.channels?.wecom,
-      };
-
-      for (const [id, c] of Object.entries(params.channels)) {
-        if (!c.hasConfig) {
-          // 删除通道配置
-          delete (channels as any)[id];
-          continue;
-        }
-        const existing = (existingConfig.channels as any)?.[id];
-        (channels as any)[id] = {
-          ...existing,
-          enabled: c.enabled,
-          ...(c.appId && { appId: c.appId }),
-          ...(c.appSecret && { appSecret: c.appSecret }),
-          ...(c.appKey && { appKey: c.appKey }),
-          ...(c.corpId && { corpId: c.corpId }),
-          ...(c.corpSecret && { corpSecret: c.corpSecret }),
-          ...(c.agentId && { agentId: c.agentId }),
-          ...(c.token && { token: c.token }),
-          ...(c.encodingAESKey && { encodingAESKey: c.encodingAESKey }),
-          ...(c.clientSecret && { clientSecret: c.clientSecret }),
-          ...(c.verificationToken && { verificationToken: c.verificationToken }),
-          ...(c.encryptKey && { encryptKey: c.encryptKey }),
-          ...(c.sandbox !== undefined && { sandbox: c.sandbox }),
-          ...(c.robotCode && { robotCode: c.robotCode }),
-        };
-      }
-      configToSave.channels = channels;
-    }
-
-    // 更新 Agent 配置
-    if (params.agent) {
-      configToSave.agent = {
-        ...existingConfig.agent,
-        ...params.agent,
-        defaultProvider: (params.agent.defaultProvider as ProviderId) || (existingConfig.agent?.defaultProvider ?? "deepseek"),
-      };
-    }
-
-    // 更新服务器配置
-    if (params.server) {
-      configToSave.server = {
-        ...existingConfig.server,
-        ...params.server,
-      };
-    }
-
-    // 更新日志配置
-    if (params.logging) {
-      configToSave.logging = {
-        ...existingConfig.logging,
-        ...params.logging,
-      };
-    }
-
-    // 更新记忆系统配置
-    if (params.memory) {
-      configToSave.memory = {
-        ...existingConfig.memory,
-        ...params.memory,
-        embeddingProvider: params.memory.embeddingProvider as ProviderId | undefined,
-      };
-    }
-
-    // 更新 Skills 配置
-    if (params.skills) {
-      configToSave.skills = {
-        ...existingConfig.skills,
-        ...params.skills,
-      };
-    }
-
-    // 确保目录存在
-    if (!existsSync(moziDir)) {
-      mkdirSync(moziDir, { recursive: true });
-    }
-
-    // 生成 JSON5 格式
-    const json5Content = this.generateJson5(configToSave);
-
-    // 写入文件
-    writeFileSync(configPath, json5Content, "utf-8");
-
-    logger.info({ configPath }, "Configuration saved");
-
-    // 检查是否需要重启
-    let requiresRestart = false;
-    if (params.server?.port && params.server.port !== this.config.server.port) {
-      requiresRestart = true;
-    }
-    if (params.channels) {
-      // 如果新增或删除了通道，需要重启
-      for (const [id, c] of Object.entries(params.channels)) {
-        const existingHasConfig = Boolean((existingConfig.channels as any)?.[id]);
-        if (c.hasConfig !== existingHasConfig) {
-          requiresRestart = true;
-          break;
-        }
-      }
-    }
-
-    return {
-      success: true,
-      message: "配置已保存" + (requiresRestart ? "，需要重启服务才能生效" : ""),
-      requiresRestart,
-    };
-  }
-
-  /** 生成 JSON5 格式的配置字符串 */
-  private generateJson5(obj: unknown, indent = 0): string {
-    const spaces = "  ".repeat(indent);
-    const innerSpaces = "  ".repeat(indent + 1);
-
-    if (obj === null || obj === undefined) {
-      return "null";
-    }
-
-    if (typeof obj === "string") {
-      return `"${obj.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-    }
-
-    if (typeof obj === "number" || typeof obj === "boolean") {
-      return String(obj);
-    }
-
-    if (Array.isArray(obj)) {
-      if (obj.length === 0) return "[]";
-      const items = obj.map((item) => `${innerSpaces}${this.generateJson5(item, indent + 1)}`);
-      return `[\n${items.join(",\n")}\n${spaces}]`;
-    }
-
-    if (typeof obj === "object") {
-      const entries = Object.entries(obj).filter(([, v]) => v !== undefined);
-      if (entries.length === 0) return "{}";
-
-      const items = entries.map(([key, value]) => {
-        // 使用不带引号的 key（如果是有效的 ECMAScript 标识符）
-        const safeKey = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(key) ? key : `"${key}"`;
-        return `${innerSpaces}${safeKey}: ${this.generateJson5(value, indent + 1)}`;
+      // 模型变更立即生效，不需要重启：同步到运行时与已打开的会话
+      this.agent.applyModelConfig({
+        model: fresh.agent.defaultModel,
+        provider: fresh.agent.defaultProvider,
+        thinkingLevel: fresh.agent.thinkingLevel,
       });
-
-      return `{\n${items.join(",\n")}\n${spaces}}`;
+    } catch (error) {
+      logger.warn({ error }, "保存后重载配置失败，需要重启服务");
     }
 
-    return String(obj);
+    return result;
   }
 
-  /** 发送响应 */
   private sendResponse(
     ws: WebSocket,
     id: string,
@@ -897,32 +655,27 @@ export class WsServer {
     payload?: unknown,
     error?: { code: string; message: string }
   ): void {
+    if (ws.readyState !== WebSocket.OPEN) return;
     const frame: WsResponseFrame = { type: "res", id, ok, payload, error };
     ws.send(JSON.stringify(frame));
   }
 
-  /** 发送事件 */
   private sendEvent(ws: WebSocket, event: string, payload?: unknown): void {
+    if (ws.readyState !== WebSocket.OPEN) return;
     const frame: WsEventFrame = { type: "event", event, payload };
     ws.send(JSON.stringify(frame));
   }
 
-  /** 广播事件 */
+  /** 广播给所有客户端 */
   broadcast(event: string, payload?: unknown): void {
-    const frame: WsEventFrame = { type: "event", event, payload };
-    const data = JSON.stringify(frame);
-
+    const data = JSON.stringify({ type: "event", event, payload } satisfies WsEventFrame);
     for (const client of this.clients.values()) {
-      if (client.ws.readyState === WebSocket.OPEN) {
-        client.ws.send(data);
-      }
+      if (client.ws.readyState === WebSocket.OPEN) client.ws.send(data);
     }
   }
 
-  /** 心跳检测 */
   private checkHeartbeat(): void {
     const now = Date.now();
-
     for (const [clientId, client] of this.clients) {
       if (now - client.lastPing > this.clientTimeout) {
         logger.info({ clientId }, "Client timeout, disconnecting");
@@ -934,11 +687,9 @@ export class WsServer {
     }
   }
 
-  /** 关闭服务器 */
   close(): void {
-    for (const client of this.clients.values()) {
-      client.ws.close();
-    }
+    this.unsubscribeDurable?.();
+    for (const client of this.clients.values()) client.ws.close();
     this.wss.close();
     logger.info("WebSocket server closed");
   }

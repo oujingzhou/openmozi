@@ -227,6 +227,19 @@ export class FileSessionStore {
     return newEntry;
   }
 
+  /** 设置会话标题 */
+  async setLabel(sessionKey: string, label: string, source: SessionEntry["labelSource"]): Promise<void> {
+    const index = await this.loadIndex();
+    const entry = index.get(sessionKey);
+    if (!entry) return;
+    // 用户自定义的标题不被自动生成的覆盖
+    if (entry.labelSource === "user" && source !== "user") return;
+    entry.label = label;
+    entry.labelSource = source;
+    entry.updatedAt = Date.now();
+    await this.saveIndex(index);
+  }
+
   /** 获取或创建会话 */
   async getOrCreate(sessionKey: string): Promise<SessionEntry> {
     const existing = await this.get(sessionKey);

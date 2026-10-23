@@ -5,10 +5,9 @@
  */
 
 import { Command } from "commander";
-import type { Message } from "@mariozechner/pi-ai";
 import { loadConfig, validateRequiredConfig } from "../config/index.js";
 import { startGateway } from "../gateway/server.js";
-import { initializeProviders, getAllModels, resolveModel, getApiKeyForProvider } from "../providers/index.js";
+import { initializeProviders, getAllModels } from "../providers/index.js";
 import { createLogger, setLogger, getLogDir, getLogFile } from "../utils/logger.js";
 import dotenv from "dotenv";
 import { spawn } from "child_process";
@@ -29,38 +28,105 @@ const program = new Command();
 program
   .name("mozi")
   .description("Mozi - 支持国产模型和国产通讯软件的智能助手机器人")
-  .version(packageJson.version);
-
-// 启动命令
-program
-  .command("start")
-  .description("启动 Gateway 服务器")
-  .option("-c, --config <path>", "配置文件路径")
-  .option("-p, --port <port>", "服务器端口")
-  .option("--web-only", "仅启用 WebChat (不需要配置飞书/钉钉/QQ)")
+  .version(packageJson.version)
+  .option("-m, --model <model>", "本次使用的模型")
+  .option("-p, --provider <provider>", "本次使用的提供商")
   .action(async (options) => {
+    // 无子命令 = 进入终端界面
     try {
-      const config = loadConfig({ configPath: options.config });
+      const config = loadConfig();
+      if (options.model) config.agent.defaultModel = options.model;
+      if (options.provider) config.agent.defaultProvider = options.provider;
 
-      // 覆盖端口
-      if (options.port) {
-        config.server.port = parseInt(options.port, 10);
-      }
-
-      // 验证配置
-      const errors = validateRequiredConfig(config, { webOnly: options.webOnly });
+      const errors = validateRequiredConfig(config);
       if (errors.length > 0) {
         console.error("❌ 配置错误:");
         errors.forEach((err) => console.error(`   - ${err}`));
         process.exit(1);
       }
 
-      await startGateway(config);
+      const { startTui } = await import("../tui/index.js");
+      await startTui(config);
     } catch (error) {
       console.error("❌ 启动失败:", error instanceof Error ? error.message : error);
       process.exit(1);
     }
   });
+
+/** 用系统默认浏览器打开地址；失败时只保留控制台里的链接 */
+function openInBrowser(url: string): void {
+  const command =
+    process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd" : "xdg-open";
+  const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
+
+  try {
+    const child = spawn(command, args, { detached: true, stdio: "ignore" });
+    child.on("error", () => {
+      // 无图形环境时静默忽略
+    });
+    child.unref();
+  } catch {
+    // 打不开就只打印地址
+  }
+}
+
+/** 启动 Gateway（`mozi web` 与 `mozi start` 共用） */
+async function runServer(options: {
+  config?: string;
+  port?: string;
+  webOnly?: boolean;
+  open?: boolean;
+}): Promise<void> {
+  try {
+    const config = loadConfig({ configPath: options.config });
+
+    if (options.port) {
+      config.server.port = parseInt(options.port, 10);
+    }
+
+    const errors = validateRequiredConfig(config);
+    if (errors.length > 0) {
+      console.error("❌ 配置错误:");
+      errors.forEach((err) => console.error(`   - ${err}`));
+      process.exit(1);
+    }
+
+    const port = config.server.port;
+    const url = `http://localhost:${port}/`;
+    console.log(`\n🌐 Web 界面: ${url}`);
+    console.log(`⚙️  设置:     ${url}control\n`);
+
+    // --web-only 只是不初始化通道；配置本身保持原样，避免被控制台保存覆盖
+    await startGateway(config, { enableChannels: !options.webOnly });
+
+    // 服务已开始监听，再打开浏览器
+    const shouldOpen = options.open !== false && !process.env.MOZI_NO_OPEN;
+    if (shouldOpen) openInBrowser(url);
+  } catch (error) {
+    console.error("❌ 启动失败:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+}
+
+/** Web 模式 */
+program
+  .command("web")
+  .description("启动 Web 服务（WebChat 界面 + 控制台）")
+  .option("-c, --config <path>", "配置文件路径")
+  .option("-p, --port <port>", "服务器端口")
+  .option("--web-only", "不启动飞书/钉钉/QQ 等通讯通道")
+  .option("--no-open", "启动后不自动打开浏览器")
+  .action(runServer);
+
+// 容器部署使用 `start`，与 `web` 行为一致
+program
+  .command("start")
+  .description("启动 Gateway 服务器（等同 mozi web）")
+  .option("-c, --config <path>", "配置文件路径")
+  .option("-p, --port <port>", "服务器端口")
+  .option("--web-only", "仅启用 WebChat (不需要配置飞书/钉钉/QQ)")
+  .option("--no-open", "启动后不自动打开浏览器")
+  .action(runServer);
 
 // 模型列表命令
 program
@@ -160,7 +226,6 @@ program
       console.log("\n🤖 Agent 配置:");
       console.log(`   默认模型: ${config.agent.defaultModel}`);
       console.log(`   默认提供商: ${config.agent.defaultProvider}`);
-      console.log(`   温度: ${config.agent.temperature}`);
       console.log(`   最大 Token: ${config.agent.maxTokens}`);
 
       // 检查服务器
@@ -182,108 +247,6 @@ program
     }
   });
 
-// 测试聊天命令
-program
-  .command("chat")
-  .description("测试聊天功能")
-  .option("-m, --model <model>", "使用的模型")
-  .option("-p, --provider <provider>", "使用的提供商")
-  .action(async (options) => {
-    try {
-      const config = loadConfig();
-      setLogger(createLogger({ level: "error" }));
-      initializeProviders(config);
-
-      const readline = await import("readline");
-      const rl = readline.createInterface({
-        input: process.stdin,
-        output: process.stdout,
-      });
-
-      const model = options.model || config.agent.defaultModel;
-      const provider = options.provider || config.agent.defaultProvider;
-
-      console.log(`\n🤖 Mozi 聊天测试`);
-      console.log(`   模型: ${model}`);
-      console.log(`   提供商: ${provider}`);
-      console.log(`   输入 'exit' 退出\n`);
-
-      const { streamSimple } = await import("@mariozechner/pi-ai");
-      const piModel = resolveModel(provider, model);
-
-      if (!piModel) {
-        console.error(`找不到模型 ${model} 的提供商`);
-        process.exit(1);
-      }
-
-      const apiKey = getApiKeyForProvider(provider);
-
-      const messages: Array<{ role: "user" | "assistant"; content: string }> = [];
-
-      const ask = () => {
-        rl.question("You: ", async (input) => {
-          if (input.toLowerCase() === "exit") {
-            console.log("再见!");
-            rl.close();
-            return;
-          }
-
-          messages.push({ role: "user", content: input });
-
-          try {
-            process.stdout.write("AI: ");
-            let fullResponse = "";
-
-            const piMessages: Message[] = messages.map((m): Message => {
-              if (m.role === "user") {
-                return { role: "user" as const, content: m.content, timestamp: Date.now() };
-              }
-              return {
-                role: "assistant" as const,
-                content: [{ type: "text" as const, text: m.content }],
-                timestamp: Date.now(),
-                api: "openai-completions" as const,
-                provider: provider,
-                model: model,
-                usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
-                stopReason: "stop" as const,
-              };
-            });
-
-            const eventStream = streamSimple(piModel, {
-              messages: piMessages,
-              tools: [],
-            }, {
-              temperature: config.agent.temperature,
-              maxTokens: config.agent.maxTokens,
-              apiKey,
-            });
-
-            for await (const event of eventStream) {
-              if (event.type === "text_delta") {
-                process.stdout.write(event.delta);
-                fullResponse += event.delta;
-              }
-            }
-
-            console.log("\n");
-            messages.push({ role: "assistant", content: fullResponse });
-          } catch (error) {
-            console.error("\n错误:", error instanceof Error ? error.message : error);
-          }
-
-          ask();
-        });
-      };
-
-      ask();
-    } catch (error) {
-      console.error("错误:", error instanceof Error ? error.message : error);
-      process.exit(1);
-    }
-  });
-
-// 配置引导命令
 program
   .command("onboard")
   .description("配置引导向导（模型/平台/服务器/Agent/记忆系统）")
@@ -853,7 +816,7 @@ program
         config.server.port = parseInt(options.port, 10);
       }
 
-      const errors = validateRequiredConfig(config, { webOnly: options.webOnly });
+      const errors = validateRequiredConfig(config);
       if (errors.length > 0) {
         console.error("❌ 配置错误:");
         errors.forEach((err) => console.error(`   - ${err}`));

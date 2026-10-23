@@ -81,7 +81,6 @@ describe("config", () => {
       expect(result.agent).toBeDefined();
       expect(result.agent?.defaultModel).toBe("deepseek-chat");
       expect(result.agent?.defaultProvider).toBe("deepseek");
-      expect(result.agent?.temperature).toBe(0.7);
       expect(result.agent?.maxTokens).toBe(4096);
       expect(result.server?.port).toBe(3000);
       expect(result.server?.host).toBe("0.0.0.0");
@@ -165,22 +164,11 @@ describe("config", () => {
         agent: {
           defaultModel: "gpt-4",
           defaultProvider: "openai",
-          temperature: 0.5,
           maxTokens: 8192,
         },
       });
 
       expect(result.success).toBe(true);
-    });
-
-    it("should reject invalid temperature", () => {
-      const result = MoziConfigSchema.safeParse({
-        agent: {
-          temperature: 3.0, // Max is 2
-        },
-      });
-
-      expect(result.success).toBe(false);
     });
 
     it("should validate memory config", () => {
@@ -353,10 +341,11 @@ providers:
       const config = MoziConfigSchema.parse({});
       const errors = validateRequiredConfig(config);
 
-      expect(errors.some((e) => e.includes("provider"))).toBe(true);
+      expect(errors.some((e) => e.includes("提供商"))).toBe(true);
     });
 
-    it("should return error when no channel configured (not webOnly)", () => {
+    it("should not require a messaging channel", () => {
+      // 通讯通道是可选的：Web 界面本身就是完整入口
       const config = MoziConfigSchema.parse({
         providers: {
           deepseek: { apiKey: "key" },
@@ -364,18 +353,7 @@ providers:
       });
       const errors = validateRequiredConfig(config);
 
-      expect(errors.some((e) => e.includes("channel"))).toBe(true);
-    });
-
-    it("should not require channel when webOnly", () => {
-      const config = MoziConfigSchema.parse({
-        providers: {
-          deepseek: { apiKey: "key" },
-        },
-      });
-      const errors = validateRequiredConfig(config, { webOnly: true });
-
-      expect(errors.some((e) => e.includes("channel"))).toBe(false);
+      expect(errors).toEqual([]);
     });
 
     it("should pass with valid config", () => {

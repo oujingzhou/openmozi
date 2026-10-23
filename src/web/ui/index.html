@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>__TITLE__</title>
+  <meta name="theme-color" content="#ffffff">
+  <link rel="stylesheet" href="/assets/tokens.css">
+  <link rel="stylesheet" href="/assets/app.css">
+  <script>
+    // 首帧前定主题，避免闪烁
+    (() => {
+      try {
+        const stored = localStorage.getItem("mozi.theme") || "system";
+        const dark =
+          stored === "dark" ||
+          (stored === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.style.colorScheme = dark ? "dark" : "light";
+        document.addEventListener("DOMContentLoaded", () => {
+          document.body.dataset.theme = dark ? "dark" : "light";
+        });
+      } catch (_) {}
+    })();
+  </script>
+</head>
+<body>
+<div class="app" data-sidebar="expanded" data-details="open">
+  <!-- 侧边栏 -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-head">
+      <span class="brand">
+        __MARK_SMALL__
+        <span class="brand-name">__ASSISTANT_NAME__</span>
+      </span>
+      <button class="mz-icon-btn" id="collapseBtn" title="收起侧边栏" aria-label="收起侧边栏">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+          <rect x="1.5" y="2.5" width="13" height="11" rx="2.5"/>
+          <path d="M6 2.5v11"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="sidebar-actions">
+      <button class="new-session" id="newSessionBtn">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <path d="M8 3v10M3 8h10"/>
+        </svg>
+        <span>新建对话</span>
+      </button>
+    </div>
+
+    <div class="session-search">
+      <input id="sessionSearch" type="search" placeholder="搜索会话…" aria-label="搜索会话">
+    </div>
+
+    <div class="session-list" id="sessionList"></div>
+
+    <div class="sidebar-foot">
+      <span id="sessionCount">0 个会话</span>
+      <a href="/control" title="打开设置">设置</a>
+    </div>
+  </aside>
+
+  <!-- 对话 -->
+  <main class="center">
+    <header class="topbar">
+      <button class="mz-icon-btn mobile-only" id="mobileMenuBtn" title="会话列表" aria-label="会话列表">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <path d="M2 4h12M2 8h12M2 12h12"/>
+        </svg>
+      </button>
+      <div class="topbar-title-block">
+        <div class="topbar-title" id="topbarTitle">新对话</div>
+        <div class="topbar-sub" id="topbarSub">durable session</div>
+      </div>
+      <nav class="view-tabs" aria-label="视图切换">
+        <button class="view-tab" data-view="chat" data-active="true">对话</button>
+        <button class="view-tab" data-view="trajectory" data-active="false">轨迹</button>
+      </nav>
+      <div class="topbar-spacer"></div>
+      <button class="mz-icon-btn" id="themeBtn" title="切换主题" aria-label="切换主题">☾</button>
+    </header>
+
+    <div class="conn-banner" id="connBanner" data-on="false">
+      <span class="mz-dot" data-state="warn"></span>
+      <span>连接已断开，正在重连…</span>
+    </div>
+
+    <div class="chat-scroll" id="chatScroll"></div>
+
+    <button class="scroll-bottom" id="scrollBottom" data-on="false">
+      回到最新
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+        <path d="M8 3v10M4 9l4 4 4-4"/>
+      </svg>
+    </button>
+
+    <div class="composer-wrap">
+      <div class="composer">
+        <div class="composer-docks" id="composerDocks"></div>
+        <div class="composer-inner">
+          <textarea id="input" rows="1" placeholder="给 __ASSISTANT_NAME__ 发送消息…" aria-label="消息输入"></textarea>
+          <div class="composer-actions">
+            <button class="send-btn" id="sendBtn" title="发送" aria-label="发送"></button>
+          </div>
+        </div>
+        <div class="composer-foot">
+          <span><kbd>Enter</kbd> 发送 · <kbd>Shift+Enter</kbd> 换行 · <kbd>Esc</kbd> 停止</span>
+          <span>__PROVIDER__ / __MODEL__</span>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- 详情栏 -->
+  <aside class="details">
+    <div class="details-head">
+      <span class="mz-grow">详情</span>
+      <button class="mz-icon-btn" id="closeDetailsBtn" title="关闭详情" aria-label="关闭详情">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <path d="M4 4l8 8M12 4l-8 8"/>
+        </svg>
+      </button>
+    </div>
+    <div class="details-body" id="detailsBody"></div>
+  </aside>
+</div>
+
+<script>
+  window.__MOZI_MARK__ = __MARK_HERO__;
+</script>
+<script src="/assets/app.js"></script>
+</body>
+</html>

@@ -42,12 +42,15 @@ export function createLogger(options: {
   name?: string;
   pretty?: boolean;
   logToFile?: boolean;
+  /** 是否同时输出到控制台；TUI 这类全屏场景应设为 false */
+  console?: boolean;
 }): PinoLogger {
   const {
     level = "info",
     name = "mozi",
     pretty = process.env.NODE_ENV !== "production",
-    logToFile = true
+    logToFile = true,
+    console: logToConsole = true,
   } = options;
 
   // 如果需要写入文件，确保目录存在
@@ -59,7 +62,9 @@ export function createLogger(options: {
   const targets: pino.TransportTargetOptions[] = [];
 
   // 控制台输出 (带格式化)
-  if (pretty) {
+  if (!logToConsole) {
+    // 只写文件
+  } else if (pretty) {
     targets.push({
       target: "pino-pretty",
       level,
@@ -113,9 +118,34 @@ export function setLogger(logger: PinoLogger): void {
   globalLogger = logger;
 }
 
-/** 创建子日志器 */
+/** 已创建的子日志器缓存：根日志器 -> 模块名 -> child */
+const childLoggers = new WeakMap<PinoLogger, Map<string, PinoLogger>>();
+
+/**
+ * 创建子日志器。
+ *
+ * 返回代理而不是真实的 child：模块级 `const logger = getChildLogger(...)`
+ * 在导入期就执行，如果直接捕获实例，之后的 setLogger() 不会影响它们。
+ * 代理每次访问都从当前全局日志器解析，使运行时切换日志级别/目标生效。
+ */
 export function getChildLogger(name: string): PinoLogger {
-  return getLogger().child({ module: name });
+  return new Proxy({} as PinoLogger, {
+    get(_target, property) {
+      const base = getLogger();
+      let byModule = childLoggers.get(base);
+      if (!byModule) {
+        byModule = new Map();
+        childLoggers.set(base, byModule);
+      }
+      let child = byModule.get(name);
+      if (!child) {
+        child = base.child({ module: name });
+        byModule.set(name, child);
+      }
+      const value = (child as unknown as Record<string | symbol, unknown>)[property];
+      return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(child) : value;
+    },
+  });
 }
 
 export { type PinoLogger as Logger };

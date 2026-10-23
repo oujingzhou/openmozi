@@ -9,7 +9,15 @@ import type {
   MoziConfig,
 } from "../types/index.js";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
-import { AgentRuntime, createAgentRuntime, type ChatResponse, type StreamEvent } from "./runtime.js";
+import {
+  AgentRuntime,
+  createAgentRuntime,
+  sessionKeyFor,
+  type ChatOptions,
+  type ChatResponse,
+  type StreamEvent,
+} from "./runtime.js";
+import type { DurableSessionSnapshot, SequencedLiveEvent } from "../durable/index.js";
 import { getChildLogger } from "../utils/logger.js";
 import { createBuiltinTools, type BuiltinToolsOptions } from "../tools/builtin/index.js";
 import { initSkills, type SkillsRegistry } from "../skills/index.js";
@@ -26,7 +34,6 @@ export interface AgentOptions {
   model: string;
   provider?: ProviderId;
   systemPrompt?: string;
-  temperature?: number;
   maxTokens?: number;
   maxHistoryMessages?: number;
   maxHistoryTurns?: number;
@@ -113,8 +120,8 @@ export class Agent {
   }
 
   /** 处理消息 (非流式) */
-  async processMessage(context: InboundMessageContext): Promise<AgentResponse> {
-    const response = await this.runtime.chat(context);
+  async processMessage(context: InboundMessageContext, options: ChatOptions = {}): Promise<AgentResponse> {
+    const response = await this.runtime.chat(context, options);
 
     return {
       content: response.content,
@@ -124,12 +131,33 @@ export class Agent {
     };
   }
 
-  /** 流式处理消息 */
+  /**
+   * 流式处理消息。
+   * 产出结构化事件（文本增量、工具调用、回合结束），由调用方决定如何呈现。
+   */
+  async *processMessageEvents(
+    context: InboundMessageContext,
+    options?: ChatOptions
+  ): AsyncGenerator<StreamEvent, AgentResponse, unknown> {
+    let fullContent = "";
+
+    for await (const event of this.runtime.chatStream(context, options)) {
+      if (event.type === "text_delta") fullContent += event.delta;
+      yield event;
+    }
+
+    return {
+      content: fullContent,
+      provider: this.options.provider ?? ("deepseek" as ProviderId),
+      model: this.options.model,
+    };
+  }
+
+  /** 流式处理消息（纯文本，供通道发送使用） */
   async *processMessageStream(
     context: InboundMessageContext,
-    options?: { signal?: AbortSignal }
+    options?: ChatOptions
   ): AsyncGenerator<string, AgentResponse, unknown> {
-    const allToolCalls: ToolCallResult[] = [];
     let fullContent = "";
 
     for await (const event of this.runtime.chatStream(context, options)) {
@@ -143,10 +171,8 @@ export class Agent {
       }
     }
 
-    // 返回最终响应
     return {
       content: fullContent,
-      toolCalls: allToolCalls.length > 0 ? allToolCalls : undefined,
       provider: this.options.provider ?? ("deepseek" as ProviderId),
       model: this.options.model,
     };
@@ -173,12 +199,65 @@ export class Agent {
     };
   }
 
-  restoreSessionFromTranscript(
-    sessionKey: string,
-    messages: Array<{ role: "user" | "assistant"; content: string }>
-  ): void {
-    this.runtime.restoreSessionFromTranscript(sessionKey, messages);
+  /** 会话是否正在跑回合 */
+  isBusy(sessionKey: string): boolean {
+    return this.runtime.isBusy(sessionKey);
   }
+
+  /** 排队一条消息（回合运行期间） */
+  enqueueMessage(params: {
+    sessionKey: string;
+    content: string;
+    behavior: "steer" | "followUp";
+    context: InboundMessageContext;
+  }): string {
+    return this.runtime.enqueueMessage(params);
+  }
+
+  /** 删除排队消息 */
+  dequeueMessage(sessionKey: string, queueId: string): boolean {
+    return this.runtime.dequeueMessage(sessionKey, queueId);
+  }
+
+  /** 把排队消息升级为 steer */
+  steerQueued(sessionKey: string, queueId: string): boolean {
+    return this.runtime.steerQueued(sessionKey, queueId);
+  }
+
+  /** 热更新模型配置（设置页保存后调用） */
+  applyModelConfig(next: {
+    model: string;
+    provider: ProviderId;
+    thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+  }): { applied: number; skipped: number } {
+    return this.runtime.applyModelConfig(next);
+  }
+
+  /** 关闭所有会话并释放资源 */
+  async shutdown(): Promise<void> {
+    await this.runtime.shutdown();
+  }
+
+  /** durable 快照（UI 读取历史） */
+  getSnapshot(sessionKey: string): DurableSessionSnapshot | null {
+    return this.runtime.getSnapshot(sessionKey);
+  }
+
+  /** 打开会话日志（不创建模型会话） */
+  openDurableSession(sessionKey: string): void {
+    this.runtime.openDurableSession(sessionKey);
+  }
+
+  /** 订阅 durable 实时事件 */
+  subscribeDurable(listener: (event: SequencedLiveEvent) => void): () => void {
+    return this.runtime.durable.subscribe(listener);
+  }
+
+  /** 会话 key 推导（与 runtime 保持一致） */
+  sessionKeyFor(context: InboundMessageContext): string {
+    return sessionKeyFor(context);
+  }
+
 }
 
 /** 创建 Agent */
@@ -233,7 +312,6 @@ export async function createAgent(config: MoziConfig): Promise<Agent> {
     model: config.agent.defaultModel,
     provider: config.agent.defaultProvider,
     systemPrompt: config.agent.systemPrompt ?? "",
-    temperature: config.agent.temperature,
     maxTokens: config.agent.maxTokens,
     workingDirectory: config.agent.workingDirectory ?? process.cwd(),
     enableFunctionCalling: config.agent.enableFunctionCalling ?? true,

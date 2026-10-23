@@ -36,8 +36,12 @@ export class Gateway {
   /** 消息去重缓存最大条数 */
   private readonly MESSAGE_CACHE_MAX_KEYS = 10000;
 
-  constructor(config: MoziConfig) {
+  /** 是否启动通讯通道（--web-only 时为 false） */
+  private readonly enableChannels: boolean;
+
+  constructor(config: MoziConfig, options: { enableChannels?: boolean } = {}) {
     this.config = config;
+    this.enableChannels = options.enableChannels !== false;
     this.app = express();
     this.httpServer = createServer(this.app);
     this.processedMessages = new NodeCache({
@@ -74,8 +78,12 @@ export class Gateway {
       res.json({ status: "ok", timestamp: new Date().toISOString() });
     });
 
+    if (!this.enableChannels) {
+      logger.info("通讯通道已禁用（仅 Web 模式）");
+    }
+
     // 飞书 (WebSocket 长连接)
-    if (this.config.channels.feishu) {
+    if (this.enableChannels && this.config.channels.feishu) {
       this.feishuChannel = createFeishuChannel(this.config.channels.feishu);
       this.feishuChannel.setMessageHandler(this.handleMessage.bind(this));
       this.app.use("/feishu", this.feishuChannel.createRouter());
@@ -84,7 +92,7 @@ export class Gateway {
     }
 
     // 钉钉 (Stream 长连接)
-    if (this.config.channels.dingtalk) {
+    if (this.enableChannels && this.config.channels.dingtalk) {
       this.dingtalkChannel = createDingtalkChannel(this.config.channels.dingtalk);
       this.dingtalkChannel.setMessageHandler(this.handleMessage.bind(this));
       this.app.use("/dingtalk", this.dingtalkChannel.createRouter());
@@ -93,7 +101,7 @@ export class Gateway {
     }
 
     // QQ 机器人
-    if (this.config.channels.qq) {
+    if (this.enableChannels && this.config.channels.qq) {
       this.qqChannel = createQQChannel(this.config.channels.qq);
       this.qqChannel.setMessageHandler(this.handleMessage.bind(this));
       registerChannel(this.qqChannel);
@@ -101,7 +109,7 @@ export class Gateway {
     }
 
     // 企业微信
-    if (this.config.channels.wecom) {
+    if (this.enableChannels && this.config.channels.wecom) {
       this.wecomChannel = createWeComChannel(this.config.channels.wecom);
       this.wecomChannel.setMessageHandler(this.handleMessage.bind(this));
       this.app.use("/wecom", this.wecomChannel.createRouter());
@@ -291,18 +299,24 @@ export class Gateway {
 }
 
 /** 创建 Gateway */
-export async function createGateway(config: MoziConfig): Promise<Gateway> {
-  const gateway = new Gateway(config);
+export async function createGateway(
+  config: MoziConfig,
+  options: { enableChannels?: boolean } = {}
+): Promise<Gateway> {
+  const gateway = new Gateway(config, options);
   await gateway.initAgent();
   return gateway;
 }
 
 /** 启动 Gateway 服务器 */
-export async function startGateway(config: MoziConfig): Promise<Gateway> {
+export async function startGateway(
+  config: MoziConfig,
+  options: { enableChannels?: boolean } = {}
+): Promise<Gateway> {
   // 设置日志
   setLogger(createLogger({ level: config.logging.level }));
 
-  const gateway = await createGateway(config);
+  const gateway = await createGateway(config, options);
   await gateway.start();
 
   // 优雅关闭

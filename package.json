@@ -1,6 +1,6 @@
 {
   "name": "mozi-bot",
-  "version": "1.12.0",
+  "version": "1.14.0",
   "description": "支持国产模型和国产通讯软件的智能助手机器人",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -14,7 +14,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node scripts/postbuild.mjs",
     "dev": "tsx watch src/cli/index.ts",
     "start": "node dist/cli/index.js start",
     "start:gateway": "tsx src/gateway/server.ts",

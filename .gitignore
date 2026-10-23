@@ -14,3 +14,6 @@ config.local.json5.*
 
 # Docker
 .dockerignore
+
+# 本地运行时数据（技能安装目录、日志等）
+.mozi/

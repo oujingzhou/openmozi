@@ -58,10 +58,11 @@ const AgentConfigSchema = z.object({
     "custom-openai", "custom-anthropic"
   ]).default("deepseek"),
   systemPrompt: z.string().optional(),
-  temperature: z.number().min(0).max(2).optional().default(0.7),
   maxTokens: z.number().optional().default(4096),
   workingDirectory: z.string().optional(),
   enableFunctionCalling: z.boolean().optional(),
+  /** 推理性模型的思考深度，对应 provider 的 reasoning_effort */
+  thinkingLevel: z.enum(["off", "minimal", "low", "medium", "high", "xhigh"]).optional(),
 });
 
 const ServerConfigSchema = z.object({
@@ -77,6 +78,7 @@ const SessionStoreConfigSchema = z.object({
   type: z.enum(["memory", "file"]).optional().default("memory"),
   directory: z.string().optional(),
   ttlMs: z.number().optional(),
+  autoTitle: z.boolean().optional().default(true),
 });
 
 const MemoryConfigSchema = z.object({
@@ -112,6 +114,31 @@ const MoziConfigSchema = z.object({
 
 // ============== 配置加载 ==============
 
+/**
+ * 递归展开字符串里的 $VAR / ${VAR}。
+ * 与 pi 的配置约定一致，便于把密钥留在环境变量里而不写进文件。
+ * 未定义的变量保持原样，避免静默变成空字符串。
+ */
+function expandEnvVars<T>(value: T): T {
+  if (typeof value === "string") {
+    return value.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g, (match, braced, bare) => {
+      const name = braced ?? bare;
+      return process.env[name] ?? match;
+    }) as T;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => expandEnvVars(item)) as T;
+  }
+  if (value && typeof value === "object") {
+    const result: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      result[key] = expandEnvVars(item);
+    }
+    return result as T;
+  }
+  return value;
+}
+
 /** 从文件加载配置 */
 function loadConfigFromFile(configPath: string): Partial<MoziConfig> {
   if (!existsSync(configPath)) {
@@ -121,9 +148,9 @@ function loadConfigFromFile(configPath: string): Partial<MoziConfig> {
   const content = readFileSync(configPath, "utf-8");
 
   if (configPath.endsWith(".json") || configPath.endsWith(".json5")) {
-    return json5.parse(content);
+    return expandEnvVars(json5.parse(content) as Partial<MoziConfig>);
   } else if (configPath.endsWith(".yaml") || configPath.endsWith(".yml")) {
-    return yaml.parse(content);
+    return expandEnvVars(yaml.parse(content) as Partial<MoziConfig>);
   }
 
   return {};
@@ -336,11 +363,23 @@ function mergeConfigs(...configs: Partial<MoziConfig>[]): Partial<MoziConfig> {
   return result;
 }
 
+/** 最近一次成功加载的配置文件路径 */
+let activeConfigPath: string | null = null;
+
+/**
+ * 当前生效的配置文件路径。
+ * 保存配置时写回同一个文件，避免 `mozi web -c foo.json5` 却把改动写进默认路径。
+ */
+export function getActiveConfigPath(): string {
+  return activeConfigPath ?? join(homedir(), ".mozi", "config.local.json5");
+}
+
 /** 加载配置 */
 export function loadConfig(options?: { configPath?: string }): MoziConfig {
   const moziDir = join(homedir(), ".mozi");
-  const configPaths = options?.configPath
-    ? [options.configPath]
+  const explicitPath = options?.configPath ?? process.env.MOZI_CONFIG;
+  const configPaths = explicitPath
+    ? [explicitPath]
     : [
         // 优先从 ~/.mozi/ 目录读取
         join(moziDir, "config.local.json5"),
@@ -364,6 +403,7 @@ export function loadConfig(options?: { configPath?: string }): MoziConfig {
     const config = loadConfigFromFile(configPath);
     if (Object.keys(config).length > 0) {
       fileConfig = config;
+      activeConfigPath = configPath;
       break;
     }
   }
@@ -384,21 +424,18 @@ export function loadConfig(options?: { configPath?: string }): MoziConfig {
 }
 
 /** 验证必需配置 */
-export function validateRequiredConfig(config: MoziConfig, options?: { webOnly?: boolean }): string[] {
+/**
+ * 校验启动所需的最小配置。
+ *
+ * 只要求有可用的模型提供商。通讯通道是可选的：
+ * Web 界面本身就是完整入口，没配通道也应该能正常启动。
+ */
+export function validateRequiredConfig(config: MoziConfig): string[] {
   const errors: string[] = [];
 
-  // 检查是否至少配置了一个提供商
   const hasProvider = Object.values(config.providers).some((p) => p?.apiKey);
   if (!hasProvider) {
-    errors.push("At least one model provider must be configured with an API key");
-  }
-
-  // 检查是否至少配置了一个通道 (webOnly 模式下可以只使用 WebChat)
-  if (!options?.webOnly) {
-    const hasChannel = config.channels.feishu || config.channels.dingtalk || config.channels.qq || config.channels.wecom;
-    if (!hasChannel) {
-      errors.push("At least one channel (feishu, dingtalk, qq, or wecom) must be configured. Use --web-only to run with WebChat only.");
-    }
+    errors.push("至少需要配置一个模型提供商（含 API Key）");
   }
 
   return errors;

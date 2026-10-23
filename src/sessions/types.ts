@@ -11,8 +11,10 @@ export interface SessionEntry {
   sessionId: string;
   /** 会话 Key（用于索引） */
   sessionKey: string;
-  /** 标签名称 */
+  /** 标签名称（展示用） */
   label?: string;
+  /** 标题来源：fallback=首条消息截断，model=模型摘要，user=用户自定义 */
+  labelSource?: "fallback" | "model" | "user";
   /** 创建时间 */
   createdAt: number;
   /** 最后更新时间 */

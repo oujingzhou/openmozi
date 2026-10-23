@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>__TITLE__（设置）</title>
+  <meta name="theme-color" content="#ffffff">
+  <link rel="stylesheet" href="/assets/tokens.css">
+  <link rel="stylesheet" href="/assets/settings.css">
+  <script>
+    (() => {
+      try {
+        const stored = localStorage.getItem("mozi.theme") || "system";
+        const dark = stored === "dark" ||
+          (stored === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.style.colorScheme = dark ? "dark" : "light";
+        document.addEventListener("DOMContentLoaded", () => {
+          document.body.dataset.theme = dark ? "dark" : "light";
+        });
+      } catch (_) {}
+    })();
+  </script>
+</head>
+<body>
+<div class="settings">
+  <header class="topbar">
+    <a class="brand" href="/" title="返回对话">
+      __MARK_SMALL__
+      <span>设置</span>
+    </a>
+    <span class="topbar-divider"></span>
+    <span class="topbar-title">__ASSISTANT_NAME__ · __PROVIDER__ / __MODEL__</span>
+    <div class="topbar-right">
+      <span class="badge" id="connection" data-online="false">
+        <span class="mz-dot" data-state="idle"></span>连接中
+      </span>
+      <a class="btn btn--outline btn--sm" href="/" title="回到对话界面">← 返回对话</a>
+    </div>
+  </header>
+
+  <div class="settings-body">
+    <nav class="nav" id="nav"></nav>
+    <main class="panel" id="panel">
+      <div class="empty">正在加载…</div>
+    </main>
+  </div>
+
+  <footer class="savebar">
+    <span class="savebar-msg" id="saveMessage" data-kind=""></span>
+    <span class="spacer"></span>
+    <button class="btn btn--outline" id="discardBtn" disabled>放弃修改</button>
+    <button class="btn btn--primary" id="saveBtn" disabled>保存更改</button>
+  </footer>
+</div>
+
+<div class="modal-backdrop" id="providerModal" data-open="false" data-editing="">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-head" id="modalTitle">添加提供商</div>
+    <div class="modal-body">
+      <div class="field">
+        <span class="field-label">类型</span>
+        <select class="select" id="modalType">
+          <option value="custom-openai">自定义 OpenAI 兼容</option>
+          <option value="custom-anthropic">自定义 Anthropic 兼容</option>
+          <option value="deepseek">DeepSeek</option>
+          <option value="doubao">豆包</option>
+          <option value="dashscope">DashScope</option>
+          <option value="zhipu">智谱 AI</option>
+          <option value="kimi">Kimi</option>
+          <option value="stepfun">阶跃星辰</option>
+          <option value="minimax">MiniMax</option>
+          <option value="modelscope">ModelScope</option>
+          <option value="openai">OpenAI</option>
+          <option value="openrouter">OpenRouter</option>
+          <option value="together">Together AI</option>
+          <option value="groq">Groq</option>
+          <option value="ollama">Ollama</option>
+          <option value="vllm">vLLM</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <span class="field-label">名称</span>
+        <input class="input" id="modalName" placeholder="显示名称（可选）">
+      </div>
+
+      <div class="field" id="baseUrlField">
+        <span class="field-label">Base URL</span>
+        <input class="input" id="modalBaseUrl" placeholder="https://api.example.com/v1">
+      </div>
+
+      <div class="field">
+        <span class="field-label">API Key</span>
+        <input class="input" id="modalApiKey" type="password" placeholder="留空则保留原有密钥" autocomplete="off">
+      </div>
+
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn--ghost" id="modalCancel">取消</button>
+      <button class="btn btn--primary" id="modalSubmit">确定</button>
+    </div>
+  </div>
+</div>
+
+<script src="/assets/settings.js"></script>
+</body>
+</html>

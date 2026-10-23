@@ -196,12 +196,13 @@ export interface AgentConfig {
   defaultModel: string;
   defaultProvider: ProviderId;
   systemPrompt?: string;
-  temperature?: number;
   maxTokens?: number;
   /** 工作目录 */
   workingDirectory?: string;
   /** 是否启用 function calling */
   enableFunctionCalling?: boolean;
+  /** 推理性模型的思考深度（reasoning_effort） */
+  thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 }
 
 /** 会话存储配置 */
@@ -212,6 +213,8 @@ export interface SessionStoreConfig {
   directory?: string;
   /** 会话 TTL (毫秒) */
   ttlMs?: number;
+  /** 是否自动生成会话标题（默认 true） */
+  autoTitle?: boolean;
 }
 
 /** Memory 配置 */

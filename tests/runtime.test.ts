@@ -2,7 +2,10 @@
  * AgentRuntime 测试
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import * as fs from "fs";
+import * as path from "path";
+import * as os from "os";
 import { AgentRuntime, createAgentRuntime, type RuntimeConfig } from "../src/agents/runtime.js";
 import type { MoziConfig } from "../src/types/index.js";
 
@@ -17,6 +20,7 @@ vi.mock("@mariozechner/pi-coding-agent", () => ({
         tokens: { input: 100, output: 50, total: 150 },
         totalMessages: 2,
       }),
+      messages: [],
       dispose: vi.fn(),
       agent: {
         setSystemPrompt: vi.fn(),
@@ -27,7 +31,12 @@ vi.mock("@mariozechner/pi-coding-agent", () => ({
     },
   }),
   SessionManager: {
-    create: vi.fn().mockReturnValue({}),
+    create: vi.fn().mockReturnValue({
+      setSessionFile: vi.fn(),
+      getEntries: vi.fn().mockReturnValue([]),
+      getSessionId: vi.fn().mockReturnValue("test-session-id"),
+      appendMessage: vi.fn(),
+    }),
   },
   AuthStorage: {
     inMemory: vi.fn().mockReturnValue({
@@ -74,6 +83,7 @@ vi.mock("../src/agents/system-prompt.js", () => ({
 describe("agents/runtime", () => {
   describe("AgentRuntime", () => {
     let runtime: AgentRuntime;
+    let testDir: string;
     const testConfig: RuntimeConfig = {
       model: "test-model",
       provider: "test-provider",
@@ -83,7 +93,12 @@ describe("agents/runtime", () => {
 
     beforeEach(() => {
       vi.clearAllMocks();
-      runtime = new AgentRuntime(testConfig);
+      testDir = fs.mkdtempSync(path.join(os.tmpdir(), "mozi-runtime-"));
+      runtime = new AgentRuntime({ ...testConfig, sessionDir: testDir, durableFsync: false });
+    });
+
+    afterEach(() => {
+      fs.rmSync(testDir, { recursive: true, force: true });
     });
 
     it("should initialize with config", () => {

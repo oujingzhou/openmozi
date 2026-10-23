@@ -1,0 +1,311 @@
+/* ============================================================
+   墨子 · 设计令牌
+   三层：静态色板 -> 语义别名（浅色/深色）-> 组件局部变量
+   组件只允许引用语义别名，不允许写死颜色。
+   ============================================================ */
+
+:root {
+  /* ---------- 1. 静态色板 ---------- */
+  --mz-indigo-400: #6f8cff;
+  --mz-indigo-450: #5686fe;
+  --mz-indigo-500: #4176e6;
+  --mz-indigo-600: #3457b2;
+  --mz-indigo-900: #0e3074;
+
+  --mz-neutral-0: #ffffff;
+  --mz-neutral-50: #f9fafb;
+  --mz-neutral-60: #f5f6f7;
+  --mz-neutral-100: #ebeef2;
+  --mz-neutral-150: #e9ecf2;
+  --mz-neutral-200: #dfe3ea;
+  --mz-neutral-300: #c8cedb;
+  --mz-neutral-400: #9aa3b5;
+  --mz-neutral-500: #7a8496;
+  --mz-neutral-600: #5c6577;
+  --mz-neutral-700: #43454a;
+  --mz-neutral-750: #2c2c2e;
+  --mz-neutral-800: #232324;
+  --mz-neutral-850: #1b1b1c;
+  --mz-neutral-900: #151517;
+  --mz-neutral-950: #0f1115;
+  --mz-neutral-1000: #0b0d11;
+
+  --mz-red-400: #f25a5a;
+  --mz-red-500: #ef4444;
+  --mz-red-600: #dc2626;
+  --mz-green-500: #22c55e;
+  --mz-green-600: #16a34a;
+  --mz-amber-400: #f7ad31;
+  --mz-amber-500: #f59e0b;
+  --mz-amber-100: #fef3c7;
+  --mz-amber-900: #4a3208;
+
+  /* ---------- 2. 语义别名（浅色） ---------- */
+  --bg-base: var(--mz-neutral-0);
+  --bg-layer-1: var(--mz-neutral-0);
+  --bg-layer-2: var(--mz-neutral-50);
+  --bg-layer-3: var(--mz-neutral-60);
+  --bg-sidebar: var(--mz-neutral-50);
+  --bg-overlay: var(--mz-neutral-150);
+  --bg-skeleton: rgba(0, 0, 0, 0.04);
+  --bg-hover: rgba(38, 49, 72, 0.06);
+  --bg-active: rgba(38, 49, 72, 0.10);
+
+  --border-l1: rgba(0, 0, 0, 0.04);
+  --border-l2: rgba(0, 0, 0, 0.10);
+  --border-l3: rgba(0, 0, 0, 0.12);
+  --border-l4: rgba(0, 0, 0, 0.16);
+
+  --label-primary: var(--mz-neutral-1000);
+  --label-secondary: var(--mz-neutral-700);
+  --label-tertiary: var(--mz-neutral-600);
+  --label-caption: var(--mz-neutral-400);
+  --label-inverse: var(--mz-neutral-0);
+
+  --brand: var(--mz-indigo-500);
+  --brand-hover: var(--mz-indigo-600);
+  --brand-soft: rgba(65, 118, 230, 0.10);
+
+  --state-business: var(--mz-indigo-500);
+  --state-success: var(--mz-green-500);
+  --state-error: var(--mz-red-600);
+  --state-warn: var(--mz-amber-500);
+  --state-warn-bg: var(--mz-amber-100);
+
+  --code-bg: var(--mz-neutral-50);
+  --code-banner: var(--mz-neutral-100);
+  --code-inline: var(--mz-neutral-100);
+  --terminal-bg: var(--mz-neutral-900);
+  --terminal-fg: #d4d4d4;
+
+  --scrollbar-thumb: var(--mz-neutral-200);
+  --scrollbar-thumb-hover: var(--mz-neutral-300);
+
+  /* ---------- 3. 排版 ---------- */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "SF Mono", "JetBrains Mono", "Fira Code", Consolas,
+    "Liberation Mono", Menlo, Courier, "PingFang SC", "Microsoft YaHei";
+
+  --text-xxl: 600 24px/32px var(--font-sans);
+  --text-xl: 500 20px/28px var(--font-sans);
+  --text-l: 500 16px/28px var(--font-sans);
+  --text-base: 400 16px/26px var(--font-sans);
+  --text-s: 400 14px/22px var(--font-sans);
+  --text-s-strong: 500 14px/22px var(--font-sans);
+  --text-xs: 400 13px/20px var(--font-sans);
+  --text-xs-strong: 500 13px/20px var(--font-sans);
+  --text-xxs: 400 12px/18px var(--font-sans);
+  --text-code: 400 13px/21px var(--font-mono);
+
+  --shadow-lv1: 0 2px 4px 0 rgba(0, 0, 0, 0.05);
+  --shadow-lv2: 0 4px 12px 0 rgba(0, 0, 0, 0.02), 0 2px 8px 0 rgba(0, 0, 0, 0.04);
+  --shadow-lv3: 0 0 1px 0 rgba(0, 0, 0, 0.2), 0 0 4px 0 rgba(0, 0, 0, 0.02),
+    0 12px 32px 0 rgba(0, 0, 0, 0.08);
+
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-fast: 0.1s;
+  --dur: 0.2s;
+  --dur-slow: 0.3s;
+
+  /* ---------- 4. 布局 ---------- */
+  --sidebar-w: 280px;
+  --sidebar-w-collapsed: 56px;
+  --details-w: 360px;
+  --content-w: 748px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --radius-xl: 22px;
+}
+
+body[data-theme="dark"] {
+  --bg-base: var(--mz-neutral-900);
+  --bg-layer-1: var(--mz-neutral-850);
+  --bg-layer-2: var(--mz-neutral-800);
+  --bg-layer-3: var(--mz-neutral-750);
+  --bg-sidebar: var(--mz-neutral-850);
+  --bg-overlay: var(--mz-neutral-700);
+  --bg-skeleton: rgba(255, 255, 255, 0.08);
+  --bg-hover: rgba(255, 255, 255, 0.08);
+  --bg-active: rgba(255, 255, 255, 0.14);
+
+  --border-l1: rgba(255, 255, 255, 0.06);
+  --border-l2: rgba(255, 255, 255, 0.12);
+  --border-l3: rgba(255, 255, 255, 0.16);
+  --border-l4: rgba(255, 255, 255, 0.20);
+
+  --label-primary: var(--mz-neutral-50);
+  --label-secondary: var(--mz-neutral-300);
+  --label-tertiary: var(--mz-neutral-400);
+  --label-caption: var(--mz-neutral-600);
+  --label-inverse: var(--mz-neutral-950);
+
+  --brand: var(--mz-indigo-400);
+  --brand-hover: var(--mz-indigo-450);
+  --brand-soft: rgba(111, 140, 255, 0.16);
+
+  --state-business: var(--mz-indigo-400);
+  --state-error: var(--mz-red-400);
+  --state-warn-bg: var(--mz-amber-900);
+
+  --code-bg: var(--mz-neutral-900);
+  --code-banner: var(--mz-neutral-850);
+  --code-inline: var(--mz-neutral-850);
+  --terminal-bg: var(--mz-neutral-1000);
+
+  --scrollbar-thumb: var(--mz-neutral-700);
+  --scrollbar-thumb-hover: var(--mz-neutral-600);
+  color-scheme: dark;
+}
+
+/* ---------- 基础 ---------- */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html { color-scheme: light; }
+
+body {
+  font: var(--text-base);
+  background: var(--bg-base);
+  color: var(--label-primary);
+  height: 100vh;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+button, input, textarea, select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+  background: none;
+  border: none;
+}
+
+a { color: var(--brand); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ---------- 滚动条 ---------- */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+  background-clip: content-box;
+}
+
+/* ---------- 共用原子 ---------- */
+.mz-row { display: flex; align-items: center; }
+.mz-gap-4 { gap: 4px; }
+.mz-gap-8 { gap: 8px; }
+.mz-gap-12 { gap: 12px; }
+.mz-grow { flex: 1; min-width: 0; }
+.mz-truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mz-hidden { display: none !important; }
+
+.mz-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: var(--radius-lg);
+  font: var(--text-s-strong);
+  color: var(--label-primary);
+  border: 1px solid transparent;
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+.mz-btn:hover { background: var(--bg-hover); }
+.mz-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.mz-btn--primary {
+  background: var(--label-primary);
+  color: var(--label-inverse);
+  border-radius: var(--radius-lg);
+}
+.mz-btn--primary:hover { background: var(--label-secondary); }
+.mz-btn--outline { border-color: var(--border-l3); }
+.mz-btn--outline:hover { background: var(--bg-hover); }
+.mz-btn--ghost { color: var(--label-secondary); }
+
+.mz-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  color: var(--label-secondary);
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.mz-icon-btn:hover { background: var(--bg-hover); color: var(--label-primary); }
+
+/* 状态点：idle / running / done / error */
+.mz-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--label-caption);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--label-caption) 18%, transparent);
+}
+.mz-dot[data-state="running"] {
+  background: var(--state-business);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--state-business) 22%, transparent);
+  animation: mz-pulse 1.4s var(--ease) infinite;
+}
+.mz-dot[data-state="done"] {
+  background: var(--state-success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--state-success) 20%, transparent);
+}
+.mz-dot[data-state="error"] {
+  background: var(--state-error);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--state-error) 20%, transparent);
+}
+.mz-dot[data-state="warn"] {
+  background: var(--state-warn);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--state-warn) 22%, transparent);
+}
+
+@keyframes mz-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+@keyframes mz-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* 流式文字：渐变扫光 */
+.mz-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--label-tertiary) 0%,
+    var(--brand) 50%,
+    var(--label-tertiary) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: mz-shimmer 2.4s linear infinite;
+}
+
+/* 骨架 */
+.mz-skeleton {
+  background: var(--bg-skeleton);
+  border-radius: var(--radius-sm);
+  animation: mz-pulse 1.6s var(--ease) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
+}
