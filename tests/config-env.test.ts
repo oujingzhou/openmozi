@@ -15,7 +15,8 @@ vi.mock("../src/utils/logger.js", () => ({
   getChildLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
 }));
 
-import { loadConfig } from "../src/config/index.js";
+import { findUnresolvedEnvRefs, loadConfig, validateRequiredConfig } from "../src/config/index.js";
+import type { MoziConfig } from "../src/types/index.js";
 
 describe("config env expansion", () => {
   let dir: string;
@@ -151,5 +152,60 @@ describe("config env expansion", () => {
     );
 
     expect(() => loadConfig({ configPath })).toThrow(/Invalid configuration/);
+  });
+
+  it("reports which config fields reference an unset variable", () => {
+    const config: MoziConfig = {
+      providers: {
+        "custom-openai": {
+          baseUrl: "https://example.com/v1",
+          apiKey: "$MOZI_MISSING_KEY",
+          headers: { "X-Auth-Token": "$MOZI_MISSING_KEY" },
+        },
+      },
+      channels: {
+        feishu: { appId: "cli_x", appSecret: "$MOZI_MISSING_SECRET" },
+      },
+      agent: { defaultProvider: "custom-openai", defaultModel: "m1" },
+      server: { port: 3000 },
+      logging: { level: "info" },
+    };
+
+    const refs = findUnresolvedEnvRefs(config);
+    expect(refs.map((ref) => ref.path).sort()).toEqual([
+      "channels.feishu.appSecret",
+      "providers.custom-openai.apiKey",
+      "providers.custom-openai.headers.X-Auth-Token",
+    ]);
+    expect(new Set(refs.map((ref) => ref.name))).toEqual(new Set(["MOZI_MISSING_KEY", "MOZI_MISSING_SECRET"]));
+  });
+
+  it("treats an unresolved default provider key as a startup error", () => {
+    const config: MoziConfig = {
+      providers: {
+        "custom-openai": { apiKey: "$MOZI_MISSING_KEY", models: [] },
+        deepseek: { apiKey: "sk-real" },
+      },
+      channels: {},
+      agent: { defaultProvider: "custom-openai", defaultModel: "m1" },
+      server: { port: 3000 },
+      logging: { level: "info" },
+    };
+
+    const errors = validateRequiredConfig(config);
+    expect(errors.join()).toContain("MOZI_MISSING_KEY");
+    expect(errors.join()).toContain("custom-openai");
+  });
+
+  it("does not block on an unresolved optional channel secret", () => {
+    const config: MoziConfig = {
+      providers: { deepseek: { apiKey: "sk-real" } },
+      channels: { feishu: { appId: "cli_x", appSecret: "$MOZI_MISSING_SECRET" } },
+      agent: { defaultProvider: "deepseek", defaultModel: "deepseek-chat" },
+      server: { port: 3000 },
+      logging: { level: "info" },
+    };
+
+    expect(validateRequiredConfig(config)).toEqual([]);
   });
 });

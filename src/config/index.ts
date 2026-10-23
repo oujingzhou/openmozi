@@ -10,6 +10,7 @@ import json5 from "json5";
 import yaml from "yaml";
 import type { MoziConfig, ProviderId } from "../types/index.js";
 import { getEnvVar } from "../utils/index.js";
+import { getChildLogger } from "../utils/logger.js";
 
 // ============== Zod Schema ==============
 
@@ -374,6 +375,69 @@ export function getActiveConfigPath(): string {
   return activeConfigPath ?? join(homedir(), ".mozi", "config.local.json5");
 }
 
+const logger = getChildLogger("config");
+
+/** 配置里引用但环境变量未设置的位置 */
+export interface UnresolvedEnvRef {
+  /** 配置项路径，如 providers.custom-openai.apiKey */
+  path: string;
+  /** 变量名，不含 $ */
+  name: string;
+}
+
+/** 通道上可能由环境变量注入的字段 */
+const CHANNEL_ENV_FIELDS = [
+  "appId",
+  "appKey",
+  "appSecret",
+  "clientSecret",
+  "corpId",
+  "corpSecret",
+  "agentId",
+  "token",
+  "encodingAESKey",
+  "verificationToken",
+  "encryptKey",
+  "robotCode",
+] as const;
+
+const ENV_REF_PATTERN = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g;
+
+/**
+ * 找出展开后仍残留的 $VAR 引用。
+ *
+ * 未设置的变量会原样保留（避免静默变成空 key），但直接发给模型端点只会得到 401，
+ * 所以启动时要点名报出来，而不是让用户去猜。
+ */
+export function findUnresolvedEnvRefs(config: MoziConfig): UnresolvedEnvRef[] {
+  const refs: UnresolvedEnvRef[] = [];
+
+  const scan = (value: unknown, path: string): void => {
+    if (typeof value !== "string") return;
+    for (const match of value.matchAll(ENV_REF_PATTERN)) {
+      refs.push({ path, name: match[1] ?? match[2] ?? "" });
+    }
+  };
+
+  for (const [id, provider] of Object.entries(config.providers)) {
+    scan(provider?.apiKey, `providers.${id}.apiKey`);
+    for (const [header, value] of Object.entries(provider?.headers ?? {})) {
+      scan(value, `providers.${id}.headers.${header}`);
+    }
+  }
+
+  for (const [id, channel] of Object.entries(config.channels)) {
+    if (!channel) continue;
+    // 通道配置是若干结构的联合，这里只按字段名读取字符串
+    const record = channel as unknown as Record<string, unknown>;
+    for (const field of CHANNEL_ENV_FIELDS) {
+      if (field in record) scan(record[field], `channels.${id}.${field}`);
+    }
+  }
+
+  return refs;
+}
+
 /** 加载配置 */
 export function loadConfig(options?: { configPath?: string }): MoziConfig {
   const moziDir = join(homedir(), ".mozi");
@@ -420,7 +484,15 @@ export function loadConfig(options?: { configPath?: string }): MoziConfig {
     throw new Error(`Invalid configuration: ${result.error.message}`);
   }
 
-  return result.data as MoziConfig;
+  const config = result.data as MoziConfig;
+
+  const unresolved = findUnresolvedEnvRefs(config);
+  if (unresolved.length > 0) {
+    const detail = unresolved.map((ref) => `${ref.path} 引用 $${ref.name}`).join("，");
+    logger.warn({ unresolved }, `配置引用了未设置的环境变量：${detail}`);
+  }
+
+  return config;
 }
 
 /** 验证必需配置 */
@@ -436,6 +508,19 @@ export function validateRequiredConfig(config: MoziConfig): string[] {
   const hasProvider = Object.values(config.providers).some((p) => p?.apiKey);
   if (!hasProvider) {
     errors.push("至少需要配置一个模型提供商（含 API Key）");
+  }
+
+  // 默认提供商引用了未设置的环境变量：每次请求都会 401，直接拦在启动阶段
+  const providerId = config.agent.defaultProvider;
+  const blocking = findUnresolvedEnvRefs(config).filter((ref) =>
+    ref.path.startsWith(`providers.${providerId}.`)
+  );
+  if (blocking.length > 0) {
+    const names = [...new Set(blocking.map((ref) => `$${ref.name}`))].join("、");
+    const paths = blocking.map((ref) => ref.path).join("、");
+    errors.push(
+      `默认模型提供商 ${providerId} 引用了未设置的环境变量 ${names}（${paths}）；请先 export 该变量或改用明文密钥`
+    );
   }
 
   return errors;
