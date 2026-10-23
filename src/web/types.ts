@@ -140,15 +140,27 @@ export interface ChannelConfigInfo {
   appKey?: string;
   corpId?: string;
   agentId?: number;
-  token?: string;
-  encodingAESKey?: string;
   robotCode?: string;
   sandbox?: boolean;
-  verificationToken?: string;
-  encryptKey?: string;
+  /** 密钥一律不回传，只回是否已配置 */
+  hasAppSecret?: boolean;
+  hasCorpSecret?: boolean;
+  hasClientSecret?: boolean;
+  hasToken?: boolean;
+  hasEncodingAESKey?: boolean;
+  hasVerificationToken?: boolean;
+  hasEncryptKey?: boolean;
+}
+
+/** 保存配置时的通道参数（可携带密钥明文） */
+export interface ChannelSaveInfo extends ChannelConfigInfo {
   appSecret?: string;
   corpSecret?: string;
   clientSecret?: string;
+  token?: string;
+  encodingAESKey?: string;
+  verificationToken?: string;
+  encryptKey?: string;
 }
 
 /** Agent 配置信息 */
@@ -218,7 +230,7 @@ export interface ConfigSaveParams {
       headers?: Record<string, string>;
     }
   >;
-  channels?: Record<string, ChannelConfigInfo>;
+  channels?: Record<string, ChannelSaveInfo>;
   agent?: Partial<AgentConfigInfo>;
   server?: Partial<ServerConfigInfo>;
   logging?: Partial<LoggingConfigInfo>;

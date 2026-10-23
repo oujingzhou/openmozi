@@ -16,9 +16,16 @@ import type {
   ConfigValidateResult,
   ProviderConfigInfo,
   ChannelConfigInfo,
+  ChannelSaveInfo,
 } from "./types.js";
 
 const logger = getChildLogger("web.config");
+
+/** 读取通道对象上的字段：值来自已解析的配置，这里只做结构读取 */
+function readField<T>(source: unknown, key: string): T | undefined {
+  if (source === null || typeof source !== "object") return undefined;
+  return (source as Record<string, unknown>)[key] as T | undefined;
+}
   /** 获取配置信息（脱敏） */
 export function getConfigInfo(config: MoziConfig): ConfigInfo {
     // 提供商信息（脱敏 API Key）
@@ -55,43 +62,53 @@ export function getConfigInfo(config: MoziConfig): ConfigInfo {
       wecom: "企业微信",
     };
     for (const [id, channel] of Object.entries(config.channels)) {
-      if (channel) {
-        const hasConfig = (
-          // 飞书
-          (id === "feishu" && ((channel as any).appId || (channel as any).appSecret)) ||
-          // 钉钉
-          (id === "dingtalk" && ((channel as any).appKey || (channel as any).appSecret || (channel as any).robotCode)) ||
-          // QQ
-          (id === "qq" && ((channel as any).appId || (channel as any).clientSecret)) ||
-          // 企业微信
-          (id === "wecom" && ((channel as any).corpId || (channel as any).corpSecret || (channel as any).agentId || (channel as any).token || (channel as any).encodingAESKey))
-        );
-        const channelConfig: ConfigInfo["channels"][string] = {
-          id,
-          name: channelNames[id] || id,
-          hasConfig,
-          enabled: hasConfig && ((channel as any).enabled ?? true),
-        };
-        // 添加非敏感字段用于编辑
-        if (id === "feishu") {
-          (channelConfig as any).appId = (channel as any).appId;
-          // appSecret 不返回
-        } else if (id === "dingtalk") {
-          (channelConfig as any).appKey = (channel as any).appKey;
-          (channelConfig as any).robotCode = (channel as any).robotCode;
-        } else if (id === "qq") {
-          (channelConfig as any).appId = (channel as any).appId;
-          (channelConfig as any).sandbox = (channel as any).sandbox;
-          // clientSecret 不返回
-        } else if (id === "wecom") {
-          (channelConfig as any).corpId = (channel as any).corpId;
-          (channelConfig as any).agentId = (channel as any).agentId;
-          (channelConfig as any).token = (channel as any).token;
-          (channelConfig as any).encodingAESKey = (channel as any).encodingAESKey;
-          // corpSecret 不返回
-        }
-        channels[id] = channelConfig;
+      if (!channel) continue;
+      const appId = readField<string>(channel, "appId");
+      const appSecret = readField<string>(channel, "appSecret");
+      const appKey = readField<string>(channel, "appKey");
+      const clientSecret = readField<string>(channel, "clientSecret");
+      const corpId = readField<string>(channel, "corpId");
+      const corpSecret = readField<string>(channel, "corpSecret");
+      const agentId = readField<number>(channel, "agentId");
+      const token = readField<string>(channel, "token");
+      const aesKey = readField<string>(channel, "encodingAESKey");
+
+      const hasConfig = Boolean(
+        (id === "feishu" && (appId || appSecret)) ||
+          (id === "dingtalk" && (appKey || appSecret || readField<string>(channel, "robotCode"))) ||
+          (id === "qq" && (appId || clientSecret)) ||
+          (id === "wecom" && (corpId || corpSecret || agentId || token || aesKey))
+      );
+
+      const channelConfig: ChannelConfigInfo = {
+        id,
+        name: channelNames[id] || id,
+        hasConfig,
+        enabled: hasConfig && (readField<boolean>(channel, "enabled") ?? true),
+      };
+
+      // 只回非敏感字段；密钥一律只回"是否已配置"
+      if (id === "feishu") {
+        channelConfig.appId = appId;
+        channelConfig.hasAppSecret = Boolean(appSecret);
+        channelConfig.hasVerificationToken = Boolean(readField(channel, "verificationToken"));
+        channelConfig.hasEncryptKey = Boolean(readField(channel, "encryptKey"));
+      } else if (id === "dingtalk") {
+        channelConfig.appKey = appKey;
+        channelConfig.robotCode = readField<string>(channel, "robotCode");
+        channelConfig.hasAppSecret = Boolean(appSecret);
+      } else if (id === "qq") {
+        channelConfig.appId = appId;
+        channelConfig.sandbox = readField<boolean>(channel, "sandbox");
+        channelConfig.hasClientSecret = Boolean(clientSecret);
+      } else if (id === "wecom") {
+        channelConfig.corpId = corpId;
+        channelConfig.agentId = agentId;
+        channelConfig.hasCorpSecret = Boolean(corpSecret);
+        channelConfig.hasToken = Boolean(token);
+        channelConfig.hasEncodingAESKey = Boolean(aesKey);
       }
+      channels[id] = channelConfig;
     }
 
     // Agent 配置
@@ -304,6 +321,7 @@ export async function saveConfig(
 
     // 更新通道
     if (params.channels) {
+      const incoming: Record<string, ChannelSaveInfo> = params.channels;
       const channels: MoziConfig["channels"] = {
         feishu: existingConfig.channels?.feishu,
         dingtalk: existingConfig.channels?.dingtalk,
@@ -311,7 +329,7 @@ export async function saveConfig(
         wecom: existingConfig.channels?.wecom,
       };
 
-      for (const [id, c] of Object.entries(params.channels)) {
+      for (const [id, c] of Object.entries(incoming)) {
         if (!c.hasConfig) {
           // 删除通道配置
           delete (channels as any)[id];

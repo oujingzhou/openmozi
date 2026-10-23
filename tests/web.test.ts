@@ -243,16 +243,42 @@ describe("web/config-ops", () => {
     const config: MoziConfig = {
       ...baseConfig,
       providers: { deepseek: { apiKey: "secret-key", baseUrl: "https://api.deepseek.com" } },
-      channels: { feishu: { appId: "cli_x", appSecret: "very-secret" } },
+      channels: {
+        feishu: { appId: "cli_x", appSecret: "very-secret" },
+        qq: { appId: "102000000", clientSecret: "qq-secret", sandbox: false },
+        wecom: {
+          corpId: "corp_x",
+          corpSecret: "corp-secret-value",
+          agentId: 100001,
+          token: "wecom-token-value",
+          encodingAESKey: "aes-key-value-0000000000000000000000000000000000000000000",
+        },
+      },
     };
     const info: ConfigInfo = getConfigInfo(config);
 
     expect(info.providers.deepseek?.hasApiKey).toBe(true);
     expect(info.providers.deepseek?.apiKey).toBeUndefined();
     expect(info.channels.feishu?.appId).toBe("cli_x");
-    expect(info.channels.feishu?.appSecret).toBeUndefined();
-    expect(JSON.stringify(info)).not.toContain("very-secret");
-    expect(JSON.stringify(info)).not.toContain("secret-key");
+    expect(info.channels.feishu?.hasAppSecret).toBe(true);
+    expect(info.channels.qq?.hasClientSecret).toBe(true);
+    // 企业微信的 Token / EncodingAESKey 同样是密钥
+    expect(info.channels.wecom?.corpId).toBe("corp_x");
+    expect(info.channels.wecom?.hasCorpSecret).toBe(true);
+    expect(info.channels.wecom?.hasToken).toBe(true);
+    expect(info.channels.wecom?.hasEncodingAESKey).toBe(true);
+
+    const serialized = JSON.stringify(info);
+    for (const secret of [
+      "very-secret",
+      "secret-key",
+      "qq-secret",
+      "corp-secret-value",
+      "wecom-token-value",
+      "aes-key-value",
+    ]) {
+      expect(serialized).not.toContain(secret);
+    }
   });
 
   it("rejects an out-of-range port", () => {

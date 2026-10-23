@@ -71,8 +71,8 @@
         { key: "corpId", label: "Corp ID" },
         { key: "corpSecret", label: "Corp Secret", secret: true },
         { key: "agentId", label: "Agent ID", type: "number" },
-        { key: "token", label: "Token" },
-        { key: "encodingAESKey", label: "EncodingAESKey" },
+        { key: "token", label: "Token", secret: true },
+        { key: "encodingAESKey", label: "EncodingAESKey", secret: true },
       ],
     },
   ];
