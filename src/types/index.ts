@@ -12,12 +12,25 @@ export type ModelApi =
   | "minimax-v1"             // MiniMax 原生接口
   | "anthropic-messages";    // Anthropic 消息接口
 
+/**
+ * 全部受支持的提供商 ID —— 唯一真源。
+ *
+ * zod schema、CLI 检查、设置页都从这里派生，避免几份清单各自漂移。
+ */
+export const PROVIDER_IDS = [
+  "deepseek", "minimax", "kimi", "stepfun", "modelscope", "dashscope", "zhipu",
+  "openai", "ollama", "openrouter", "together", "groq",
+  "azure-openai", "vllm",
+  "custom-openai", "custom-anthropic",
+] as const;
+
 /** 模型提供商 ID */
-export type ProviderId =
-  | "deepseek" | "doubao" | "minimax" | "kimi" | "stepfun" | "modelscope" | "dashscope" | "zhipu"
-  | "openai" | "ollama" | "openrouter" | "together" | "groq"
-  | "azure-openai" | "vllm"
-  | "custom-openai" | "custom-anthropic";
+export type ProviderId = (typeof PROVIDER_IDS)[number];
+
+/** 需要 API Key 才能工作的国产提供商（用于配置检查与引导） */
+export const CHINA_PROVIDER_IDS = [
+  "deepseek", "minimax", "kimi", "stepfun", "modelscope", "dashscope", "zhipu",
+] as const satisfies readonly ProviderId[];
 
 /** 模型定义 */
 export interface ModelDefinition {

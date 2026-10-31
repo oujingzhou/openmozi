@@ -8,7 +8,7 @@ import { join } from "path";
 import { homedir } from "os";
 import json5 from "json5";
 import yaml from "yaml";
-import type { MoziConfig, ProviderId } from "../types/index.js";
+import { PROVIDER_IDS, type MoziConfig } from "../types/index.js";
 import { getEnvVar } from "../utils/index.js";
 import { getChildLogger } from "../utils/logger.js";
 
@@ -53,11 +53,7 @@ const WeComConfigSchema = z.object({
 
 const AgentConfigSchema = z.object({
   defaultModel: z.string().default("deepseek-chat"),
-  defaultProvider: z.enum([
-    "deepseek", "minimax", "kimi", "stepfun", "modelscope", "dashscope", "zhipu",
-    "openai", "ollama", "openrouter", "together", "groq",
-    "custom-openai", "custom-anthropic"
-  ]).default("deepseek"),
+  defaultProvider: z.enum(PROVIDER_IDS).default("deepseek"),
   systemPrompt: z.string().optional(),
   maxTokens: z.number().optional().default(4096),
   workingDirectory: z.string().optional(),

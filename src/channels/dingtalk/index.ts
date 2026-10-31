@@ -127,51 +127,27 @@ export class DingtalkChannel extends BaseChannelAdapter {
     this.initialized = false;
   }
 
-  /** 发送消息 */
-  async sendMessage(message: OutboundMessage): Promise<SendResult> {
-    try {
-      // 优先使用缓存的 session webhook
-      const session = this.sessionCache.get(message.chatId);
+  /** 发送消息：优先用会话 webhook，其次机器人 API */
+  protected async doSend(message: OutboundMessage): Promise<void> {
+    const session = this.sessionCache.get(message.chatId);
 
-      if (session && session.expireTime > Date.now()) {
-        await this.apiClient.replyWebhookMessage(session.sessionWebhook, message.content);
-        return { success: true };
-      }
+    if (session && session.expireTime > Date.now()) {
+      await this.apiClient.replyWebhookMessage(session.sessionWebhook, message.content);
+      return;
+    }
 
-      // 如果没有缓存或已过期，尝试使用机器人消息 API
-      if (session?.conversationType === "group" && session.openConversationId) {
-        await this.apiClient.sendGroupMessage(session.openConversationId, message.content);
-      } else {
-        await this.apiClient.sendRobotMessage(message.chatId, message.content);
-      }
-
-      return { success: true };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error({ error, message }, "Failed to send message");
-      return { success: false, error: errorMessage };
+    if (session?.conversationType === "group" && session.openConversationId) {
+      await this.apiClient.sendGroupMessage(session.openConversationId, message.content);
+    } else {
+      await this.apiClient.sendRobotMessage(message.chatId, message.content);
     }
   }
 
-  /** 发送文本消息 */
-  async sendText(chatId: string, text: string, replyToId?: string): Promise<SendResult> {
-    return this.sendMessage({ chatId, content: text, replyToId });
-  }
-
-  /** 检查通道状态 */
-  async isHealthy(): Promise<boolean> {
-    try {
-      // 检查 API 认证
-      await this.apiClient.getAccessToken();
-
-      // 检查 Stream 连接状态
-      if (this.streamClient) {
-        return this.streamClient.isConnected();
-      }
-
-      return true;
-    } catch {
-      return false;
+  /** 健康检查：能取到 token 且 Stream 在线 */
+  protected async checkHealth(): Promise<void> {
+    await this.apiClient.getAccessToken();
+    if (this.streamClient && !this.streamClient.isConnected()) {
+      throw new Error("DingTalk stream is disconnected");
     }
   }
 

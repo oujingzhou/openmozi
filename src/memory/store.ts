@@ -8,6 +8,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { getChildLogger } from "../utils/logger.js";
+import { atomicWriteJson } from "../storage/index.js";
 import type {
   MemoryEntry,
   MemoryStore,
@@ -113,7 +114,7 @@ export class JsonMemoryStore implements MemoryStore {
         embeddings,
       };
 
-      fs.writeFileSync(this.indexFile, JSON.stringify(data, null, 2), "utf-8");
+      atomicWriteJson(this.indexFile, data);
       this.dirty = false;
       logger.debug("Memory index saved");
     } catch (error) {

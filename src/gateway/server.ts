@@ -63,6 +63,9 @@ export class Gateway {
   private setupMiddleware(): void {
     this.app.use(express.json());
     this.app.use(express.urlencoded({ extended: true }));
+    // 企业微信回调是 text/xml：没有这个 parser，req.body 会变成 {}，
+    // 导致 <Encrypt> 取不到、所有入站消息被静默丢弃。
+    this.app.use(express.text({ type: ["text/xml", "application/xml"], limit: "1mb" }));
 
     // 请求日志
     this.app.use((req, res, next) => {
@@ -220,21 +223,30 @@ export class Gateway {
       config: this.config,
     });
 
-    // 初始化通道
-    if (this.feishuChannel) {
-      await this.feishuChannel.initialize();
-    }
-    if (this.dingtalkChannel) {
-      await this.dingtalkChannel.initialize();
-    }
-    if (this.qqChannel) {
-      await this.qqChannel.initialize();
-    }
-    if (this.wecomChannel) {
-      await this.wecomChannel.initialize();
-    }
+    // 初始化通道：单个通道初始化失败不应拖垮整个服务
+    // （WebChat 本身是完整入口，其他通道是可选的）。
+    await this.initChannel("feishu", this.feishuChannel);
+    await this.initChannel("dingtalk", this.dingtalkChannel);
+    await this.initChannel("qq", this.qqChannel);
+    await this.initChannel("wecom", this.wecomChannel);
 
     logger.info("Gateway initialized");
+  }
+
+  /** 初始化单个通道；失败只告警并注销该通道 */
+  private async initChannel(
+    id: string,
+    channel: { initialize(): Promise<void> } | undefined
+  ): Promise<void> {
+    if (!channel) return;
+    try {
+      await channel.initialize();
+    } catch (error) {
+      logger.error(
+        { error, channel: id },
+        `通道 ${id} 初始化失败，已跳过；其余入口继续提供服务`
+      );
+    }
   }
 
   /** 启动服务器 */

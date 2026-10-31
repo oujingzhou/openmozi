@@ -4,6 +4,7 @@
  */
 
 import crypto from "crypto";
+import { isFreshTimestamp, safeEqual } from "../common/signature.js";
 
 export class WeComCrypto {
   private token: string;
@@ -18,10 +19,10 @@ export class WeComCrypto {
     this.aesKey = Buffer.from(encodingAESKey + "=", "base64");
   }
 
-  /** 验证签名 */
+  /** 验证签名：校验时间窗并做常量时间比较 */
   verifySignature(msgSignature: string, timestamp: string, nonce: string, echostr: string): boolean {
-    const signature = this.getSignature(timestamp, nonce, echostr);
-    return signature === msgSignature;
+    if (!isFreshTimestamp(timestamp)) return false;
+    return safeEqual(this.getSignature(timestamp, nonce, echostr), msgSignature);
   }
 
   /** 生成签名 */

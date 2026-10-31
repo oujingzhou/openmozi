@@ -8,7 +8,6 @@
   // ---------- 元数据 ----------
   const PROVIDER_LABELS = {
     deepseek: "DeepSeek",
-    doubao: "豆包",
     minimax: "MiniMax",
     kimi: "Kimi",
     stepfun: "阶跃星辰",

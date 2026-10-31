@@ -25,7 +25,7 @@ OpenMozi is a lightweight AI assistant framework focused on the Chinese ecosyste
 
 ## Core Features
 
-- **Multi-Model Support** — Built on pi-ai unified calling layer, supporting DeepSeek, Doubao, DashScope (Qwen), Zhipu AI, Kimi, StepFun, MiniMax, plus OpenAI/Anthropic/OpenRouter/Groq and 25+ providers
+- **Multi-Model Support** — Built on pi-ai unified calling layer, supporting DeepSeek, DashScope (Qwen), Zhipu AI, Kimi, StepFun, MiniMax, plus OpenAI/Anthropic/OpenRouter/Groq and 25+ providers
 - **Multi-Platform Channels** — QQ, Feishu, DingTalk, WeCom with unified message handling interface
 - **Function Calling** — Based on pi-coding-agent runtime, native support for tool calling loops
 - **25 Built-in Tools** — File read/write, Bash execution, code search, web fetch, image analysis, browser automation, memory system, scheduled tasks, etc.
@@ -79,7 +79,7 @@ mozi onboard
 ```
 
 The wizard will guide you through:
-- **Chinese Models** — DeepSeek, Doubao, Zhipu AI, DashScope, Kimi, StepFun, MiniMax, ModelScope
+- **Chinese Models** — DeepSeek, Zhipu AI, DashScope, Kimi, StepFun, MiniMax, ModelScope
 - **Custom OpenAI-Compatible Interface** — Supports any OpenAI API format service (e.g., vLLM, Ollama)
 - **Custom Anthropic-Compatible Interface** — Supports any Claude API format service
 - **Communication Platforms** — QQ, Feishu, DingTalk, WeCom
@@ -117,7 +117,6 @@ Open your browser and visit `http://localhost:3000` to start chatting.
 | Provider | Environment Variable | Description |
 |----------|---------------------|-------------|
 | DeepSeek | `DEEPSEEK_API_KEY` | Strong reasoning, cost-effective |
-| Doubao | `DOUBAO_API_KEY` | ByteDance Volcano Engine, Seed deep thinking series, 256k context |
 | DashScope | `DASHSCOPE_API_KEY` | Alibaba Cloud Bailian, Qwen commercial version, stable high concurrency |
 | Zhipu AI | `ZHIPU_API_KEY` | GLM-Z1/GLM-4/GLM-5 series, Tsinghua tech team, free tier available |
 | ModelScope | `MODELSCOPE_API_KEY` | Alibaba ModelScope community, Qwen open source, free tier available |
@@ -709,9 +708,8 @@ flowchart TB
     subgraph External["🔗 External Dependencies"]
         subgraph Providers["Model Providers"]
             P1["DeepSeek"]
-            P2["Doubao"]
-            P3["DashScope"]
-            P4["Zhipu AI"]
+            P2["DashScope"]
+            P3["Zhipu AI"]
             P5["Kimi"]
             P6["OpenAI"]
             P7["Anthropic"]

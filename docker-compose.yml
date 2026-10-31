@@ -29,7 +29,6 @@ services:
       # - MODELSCOPE_API_KEY=your_modelscope_api_key
       # - DASHSCOPE_API_KEY=your_dashscope_api_key
       # - ZHIPU_API_KEY=your_zhipu_api_key
-      # - DOUBAO_API_KEY=your_doubao_api_key
 
       # Feishu configuration (remove --web-only from command to use)
       # - FEISHU_APP_ID=your_feishu_app_id

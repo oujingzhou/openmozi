@@ -99,21 +99,6 @@ export {
   defineToolPlugin,
 } from "./plugins/index.js";
 
-// Commands
-export {
-  type CommandContext,
-  type CommandHandler,
-  type CommandDefinition,
-  registerCommand,
-  registerCommands,
-  getCommand,
-  getAllCommands,
-  isCommand,
-  parseCommand,
-  executeCommand,
-  registerBuiltinCommands,
-} from "./commands/index.js";
-
 // Gateway
 export { Gateway, createGateway, startGateway } from "./gateway/index.js";
 

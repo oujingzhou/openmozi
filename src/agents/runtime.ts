@@ -129,6 +129,8 @@ export class AgentRuntime {
   private draining = new Set<string>();
   /** 因 steer 而主动中断的会话（回合应记为 aborted） */
   private steered = new Set<string>();
+  /** 会话级回合互斥锁：同一会话的回合串行执行 */
+  private turnLocks = new Map<string, Promise<void>>();
   private readonly maxToolRounds: number;
   readonly durable: DurableStore;
 
@@ -224,6 +226,14 @@ export class AgentRuntime {
     if (this.customTools.length > 0) {
       newSession.agent.setTools(this.customTools);
     }
+
+    // 把工具自己声明的 isError 提升为 pi 的失败标志。
+    // pi 只在抛异常时置 isError，而我们的工具用返回值表达"拒绝访问/命令被拦截"，
+    // 不提升的话这些失败会以成功身份进入提示词和日志。
+    newSession.agent.setAfterToolCall(async (context) => {
+      const flagged = context.result as { isError?: boolean };
+      return flagged.isError ? { isError: true } : undefined;
+    });
 
     // 兼容性修补：pi-ai 在 tools 为空数组时仍会发送 "tools": []，
     // 部分 OpenAI 兼容端点（如 stepcloud）会直接 400 拒绝。
@@ -326,7 +336,6 @@ export class AgentRuntime {
       workingDirectory: this.config.workingDirectory,
       includeEnvironment: true,
       includeDateTime: true,
-      includeToolRules: false,
       skillsPrompt: this.skillsRegistry?.buildPrompt(),
       enableMemory: !!this.config.memoryManager,
     });
@@ -355,114 +364,24 @@ export class AgentRuntime {
     return turn.steps.map((step) => step.text).filter(Boolean).join("\n\n");
   }
 
-  /** 非流式聊天 */
-  async chat(context: InboundMessageContext, options: ChatOptions = {}): Promise<ChatResponse> {
-    const sessionKey = sessionKeyFor(context);
-
-    // 幂等：重试已完成的 requestId 直接返回既有结果
-    if (options.requestId) {
-      const existing = this.findCompletedTurn(sessionKey, options.requestId);
-      if (existing) {
-        logger.debug({ sessionKey, requestId: options.requestId }, "Returning durable result for duplicate request");
-        return {
-          content: AgentRuntime.textFromTurn(existing),
-          provider: (existing.provider as ProviderId) ?? this.config.provider,
-          model: existing.model ?? this.config.model,
-          usage: existing.usage,
-          turnId: existing.turnId,
-        };
-      }
-    }
-
-    const session = await this.getOrCreateSession(sessionKey);
-    const recorder = this.recorders.get(sessionKey)!;
-
-    const recording = recorder.start({
-      content: context.content,
-      source: options.source ?? context.channelId,
-      requestId: options.requestId,
-    });
-
-    let rounds = 0;
-    let runaway = false;
-    const unsubscribe = session.subscribe((event) => {
-      recorder.recordEvent(recording, event);
-      if (event.type === "tool_execution_end") {
-        rounds += 1;
-        // 工具持续失败时模型可能无限重试，这里兜底中止
-        if (rounds >= this.maxToolRounds) {
-          runaway = true;
-          session.agent.abort();
-        }
-      }
-    });
-
-    try {
-      await session.prompt(context.content);
-      await session.agent.waitForIdle();
-
-      if (runaway) {
-        const message = `工具调用超过 ${this.maxToolRounds} 轮，已中止本回合`;
-        recording.finish("aborted", message);
-        throw new Error(message);
-      }
-
-      const failure = AgentRuntime.modelFailure(session.messages);
-      if (failure) {
-        recording.finish("error", failure);
-        throw new Error(failure);
-      }
-      recording.finish("completed");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      // 带上堆栈，便于定位 pi 内部抛出的错误
-      logger.error({ error, sessionKey, turnId: recording.turnId }, "Turn failed");
-      recording.finish(options.signal?.aborted ? "aborted" : "error", message);
-      throw error;
-    } finally {
-      unsubscribe();
-    }
-
-    const stats = session.getSessionStats();
-    return {
-      content: session.getLastAssistantText() ?? "",
-      provider: this.config.provider,
-      model: this.config.model,
-      usage: {
-        promptTokens: stats.tokens.input,
-        completionTokens: stats.tokens.output,
-        totalTokens: stats.tokens.total,
-      },
-      turnId: recording.turnId,
-    };
-  }
-
   /**
-   * 模型返回 stopReason=error 时，pi 不会抛异常（错误写在消息里）。
-   * 必须把它转成真实的失败，否则日志与 UI 都会把失败当成成功。
+   * 单一回合执行器。
+   *
+   * 流式与非流式共用这一条路径：事件总是被产出，`chat()` 只是把它们丢掉。
+   * 同一会话的回合通过 turnLock 串行化——之前 `chat()` 没有 running 守卫，
+   * 两个并发请求会共享同一个 TurnRecorder，步骤与工具结果互相覆盖。
    */
-  private static modelFailure(messages: ReadonlyArray<unknown>): string | null {
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      const message = messages[index];
-      if (!message || typeof message !== "object" || !("role" in message)) continue;
-      if (message.role !== "assistant") continue;
-      const assistant = message as AssistantMessage;
-      if (assistant.stopReason !== "error") return null;
-      return assistant.errorMessage || "模型返回错误，但没有提供错误信息";
-    }
-    return null;
-  }
-
-  /** 流式聊天 */
-  async *chatStream(
+  private async *runTurn(
     context: InboundMessageContext,
-    options: ChatOptions = {}
+    options: ChatOptions
   ): AsyncGenerator<StreamEvent, ChatResponse, unknown> {
     const sessionKey = options.sessionKeyOverride ?? sessionKeyFor(context);
 
+    // 幂等：重试已完成的 requestId 直接回放既有结果
     if (options.requestId) {
       const existing = this.findCompletedTurn(sessionKey, options.requestId);
       if (existing) {
+        logger.debug({ sessionKey, requestId: options.requestId }, "Replaying durable result for duplicate request");
         yield { type: "turn_start", turnId: existing.turnId, requestId: existing.requestId, resumed: true };
         for (const step of existing.steps) {
           yield { type: "step_start", stepId: step.stepId };
@@ -489,149 +408,215 @@ export class AgentRuntime {
       }
     }
 
-    const session = await this.getOrCreateSession(sessionKey);
-    const recorder = this.recorders.get(sessionKey)!;
-    this.running.add(sessionKey);
-    const recording = recorder.start({
-      content: context.content,
-      source: options.source ?? context.channelId,
-      requestId: options.requestId,
-    });
+    const release = await this.acquireTurnLock(sessionKey);
+    try {
+      const session = await this.getOrCreateSession(sessionKey);
+      const recorder = this.recorders.get(sessionKey)!;
+      this.running.add(sessionKey);
 
-    const queue: StreamEvent[] = [];
-    let done = false;
-    const failure: { error: Error | null } = { error: null };
+      const recording = recorder.start({
+        content: context.content,
+        source: options.source ?? context.channelId,
+        requestId: options.requestId,
+      });
+      yield { type: "turn_start", turnId: recording.turnId, requestId: recording.requestId, resumed: false };
 
-    let rounds = 0;
-    let runaway = false;
-    const unsubscribe = session.subscribe((event: AgentSessionEvent) => {
-      recorder.recordEvent(recording, event);
+      const queue: StreamEvent[] = [];
+      let done = false;
+      const failure: { error: Error | null } = { error: null };
+      let rounds = 0;
+      let runaway = false;
 
-      if (event.type === "tool_execution_end") {
-        rounds += 1;
-        if (rounds >= this.maxToolRounds) {
-          runaway = true;
-          session.agent.abort();
+      const unsubscribe = session.subscribe((event: AgentSessionEvent) => {
+        recorder.recordEvent(recording, event);
+
+        if (event.type === "tool_execution_end") {
+          rounds += 1;
+          // 工具持续失败时模型可能无限重试，这里兜底中止
+          if (rounds >= this.maxToolRounds) {
+            runaway = true;
+            session.agent.abort();
+          }
         }
-      }
 
-      if (event.type === "message_start" && event.message.role === "assistant") {
-        queue.push({ type: "step_start", stepId: recorder.currentStepId });
-      } else if (event.type === "message_update") {
-        const update = event.assistantMessageEvent;
-        if (update?.type === "text_delta" && update.delta) {
-          queue.push({ type: "text_delta", delta: update.delta });
-        } else if (update?.type === "thinking_delta" && update.delta) {
-          queue.push({ type: "thinking_delta", delta: update.delta });
+        if (event.type === "message_start" && event.message.role === "assistant") {
+          queue.push({ type: "step_start", stepId: recorder.currentStepId });
+        } else if (event.type === "message_update") {
+          const update = event.assistantMessageEvent;
+          if (update?.type === "text_delta" && update.delta) {
+            queue.push({ type: "text_delta", delta: update.delta });
+          } else if (update?.type === "thinking_delta" && update.delta) {
+            queue.push({ type: "thinking_delta", delta: update.delta });
+          }
+        } else if (event.type === "tool_execution_start") {
+          queue.push({
+            type: "tool_start",
+            callId: event.toolCallId,
+            name: event.toolName,
+            argsPreview: this.getArgsPreview(event.args as Record<string, unknown>),
+          });
+        } else if (event.type === "tool_execution_update") {
+          const text = textFromPartialResult(event.partialResult);
+          if (text) queue.push({ type: "tool_update", callId: event.toolCallId, text });
+        } else if (event.type === "tool_execution_end") {
+          const text = contentOfToolResult(event.result)
+            .map((item) => (item.type === "text" ? item.text : ""))
+            .join("\n");
+          queue.push({
+            type: "tool_end",
+            callId: event.toolCallId,
+            name: event.toolName,
+            isError: event.isError,
+            text,
+          });
+        } else if (event.type === "agent_end") {
+          done = true;
         }
-      } else if (event.type === "tool_execution_start") {
-        queue.push({
-          type: "tool_start",
-          callId: event.toolCallId,
-          name: event.toolName,
-          argsPreview: this.getArgsPreview(event.args as Record<string, unknown>),
-        });
-      } else if (event.type === "tool_execution_update") {
-        const text = textFromPartialResult(event.partialResult);
-        if (text) queue.push({ type: "tool_update", callId: event.toolCallId, text });
-      } else if (event.type === "tool_execution_end") {
-        const text = contentOfToolResult(event.result)
-          .map((item) => (item.type === "text" ? item.text : ""))
-          .join("\n");
-        queue.push({
-          type: "tool_end",
-          callId: event.toolCallId,
-          name: event.toolName,
-          isError: event.isError,
-          text,
-        });
-      } else if (event.type === "agent_end") {
-        done = true;
-      }
-    });
-
-    const promptPromise = session
-      .prompt(context.content)
-      .then(() => session.agent.waitForIdle())
-      .catch((error: unknown) => {
-        done = true;
-        failure.error = error instanceof Error ? error : new Error(String(error));
       });
 
-    try {
-      while (!done) {
-        if (options.signal?.aborted) {
-          session.agent.abort();
-          throw new DOMException("Aborted", "AbortError");
+      // 结束条件有两个：pi 发出 agent_end，或 prompt 自身 settle。
+      // 只等 agent_end 会在没有 agent_end 的实现上死等（就是之前的 5s 超时）。
+      let settled = false;
+      const promptPromise = session
+        .prompt(context.content)
+        .then(() => session.agent.waitForIdle())
+        .catch((error: unknown) => {
+          failure.error = error instanceof Error ? error : new Error(String(error));
+        })
+        .finally(() => {
+          settled = true;
+        });
+
+      try {
+        while (!done && !settled) {
+          if (options.signal?.aborted) {
+            session.agent.abort();
+            throw new DOMException("Aborted", "AbortError");
+          }
+          while (queue.length > 0) yield queue.shift()!;
+          if (!done && !settled) await delay(30);
         }
         while (queue.length > 0) yield queue.shift()!;
-        if (!done) await delay(30);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.error({ error, sessionKey, turnId: recording.turnId }, "Turn aborted");
+        recording.finish(options.signal?.aborted ? "aborted" : "error", message);
+        yield { type: "turn_end", turnId: recording.turnId, reason: "aborted", error: message };
+        throw error;
+      } finally {
+        unsubscribe();
       }
-      while (queue.length > 0) yield queue.shift()!;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      logger.error({ error, sessionKey, turnId: recording.turnId }, "Turn aborted");
-      recording.finish(options.signal?.aborted ? "aborted" : "error", message);
-      yield { type: "turn_end", turnId: recording.turnId, reason: "aborted", error: message };
-      throw error;
-    } finally {
-      unsubscribe();
-      this.running.delete(sessionKey);
-      // 延后一拍：先让本回合的 turn-end 落盘，再启动排队消息
-      queueMicrotask(() => void this.drainQueue(sessionKey));
-    }
 
-    await promptPromise;
+      await promptPromise;
 
-    if (failure.error) {
-      const message = failure.error.message;
-      logger.error({ error: failure.error, sessionKey, turnId: recording.turnId }, "Model returned error");
-      recording.finish("error", message);
-      yield { type: "turn_end", turnId: recording.turnId, reason: "error", error: message };
-      throw failure.error;
-    }
+      if (failure.error) {
+        const message = failure.error.message;
+        logger.error({ error: failure.error, sessionKey, turnId: recording.turnId }, "Model returned error");
+        recording.finish("error", message);
+        yield { type: "turn_end", turnId: recording.turnId, reason: "error", error: message };
+        throw failure.error;
+      }
 
-    if (this.steered.delete(sessionKey)) {
-      const message = "已被插入的消息中断";
-      recording.finish("aborted", message);
-      yield { type: "turn_end", turnId: recording.turnId, reason: "aborted", error: message };
+      if (this.steered.delete(sessionKey)) {
+        const message = "已被插入的消息中断";
+        recording.finish("aborted", message);
+        yield { type: "turn_end", turnId: recording.turnId, reason: "aborted", error: message };
+        return {
+          content: session.getLastAssistantText() ?? "",
+          provider: this.config.provider,
+          model: this.config.model,
+          turnId: recording.turnId,
+        };
+      }
+
+      if (runaway) {
+        const message = `工具调用超过 ${this.maxToolRounds} 轮，已中止本回合`;
+        recording.finish("aborted", message);
+        yield { type: "turn_end", turnId: recording.turnId, reason: "aborted", error: message };
+        throw new Error(message);
+      }
+
+      const modelFailure = AgentRuntime.modelFailure(session.messages);
+      if (modelFailure) {
+        recording.finish("error", modelFailure);
+        yield { type: "turn_end", turnId: recording.turnId, reason: "error", error: modelFailure };
+        throw new Error(modelFailure);
+      }
+
+      recording.finish("completed");
+      yield { type: "turn_end", turnId: recording.turnId, reason: "completed" };
+
+      const stats = session.getSessionStats();
       return {
         content: session.getLastAssistantText() ?? "",
         provider: this.config.provider,
         model: this.config.model,
+        usage: {
+          promptTokens: stats.tokens.input,
+          completionTokens: stats.tokens.output,
+          totalTokens: stats.tokens.total,
+        },
         turnId: recording.turnId,
       };
+    } finally {
+      this.running.delete(sessionKey);
+      release();
+      // 延后一拍：先让本回合的 turn-end 落盘，再启动排队消息
+      queueMicrotask(() => void this.drainQueue(sessionKey));
     }
+  }
 
-    if (runaway) {
-      const message = `工具调用超过 ${this.maxToolRounds} 轮，已中止本回合`;
-      recording.finish("aborted", message);
-      yield { type: "turn_end", turnId: recording.turnId, reason: "aborted", error: message };
-      throw new Error(message);
-    }
-
-    const modelFailure = AgentRuntime.modelFailure(session.messages);
-    if (modelFailure) {
-      recording.finish("error", modelFailure);
-      yield { type: "turn_end", turnId: recording.turnId, reason: "error", error: modelFailure };
-      throw new Error(modelFailure);
-    }
-
-    recording.finish("completed");
-    yield { type: "turn_end", turnId: recording.turnId, reason: "completed" };
-
-    const stats = session.getSessionStats();
-    return {
-      content: session.getLastAssistantText() ?? "",
-      provider: this.config.provider,
-      model: this.config.model,
-      usage: {
-        promptTokens: stats.tokens.input,
-        completionTokens: stats.tokens.output,
-        totalTokens: stats.tokens.total,
-      },
-      turnId: recording.turnId,
+  /**
+   * 会话级互斥：同一会话同时只跑一个回合。
+   * 返回 release 函数，调用方必须在 finally 中释放。
+   */
+  private async acquireTurnLock(sessionKey: string): Promise<() => void> {
+    const previous = this.turnLocks.get(sessionKey) ?? Promise.resolve();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tail = previous.then(() => gate);
+    this.turnLocks.set(sessionKey, tail);
+    await previous;
+    return () => {
+      release();
+      if (this.turnLocks.get(sessionKey) === tail) this.turnLocks.delete(sessionKey);
     };
+  }
+
+  /** 非流式聊天：跑完整回合，丢弃流式事件 */
+  async chat(context: InboundMessageContext, options: ChatOptions = {}): Promise<ChatResponse> {
+    const turn = this.runTurn(context, options);
+    let next = await turn.next();
+    while (!next.done) {
+      next = await turn.next();
+    }
+    return next.value;
+  }
+
+  /** 流式聊天 */
+  chatStream(
+    context: InboundMessageContext,
+    options: ChatOptions = {}
+  ): AsyncGenerator<StreamEvent, ChatResponse, unknown> {
+    return this.runTurn(context, options);
+  }
+
+  /**
+   * 模型返回 stopReason=error 时，pi 不会抛异常（错误写在消息里）。
+   * 必须把它转成真实的失败，否则日志与 UI 都会把失败当成成功。
+   */
+  private static modelFailure(messages: ReadonlyArray<unknown>): string | null {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (!message || typeof message !== "object" || !("role" in message)) continue;
+      if (message.role !== "assistant") continue;
+      const assistant = message as AssistantMessage;
+      if (assistant.stopReason !== "error") return null;
+      return assistant.errorMessage || "模型返回错误，但没有提供错误信息";
+    }
+    return null;
   }
 
   /** 清除会话（同时重置 durable 日志与 pi 会话） */

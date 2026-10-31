@@ -4,11 +4,11 @@
  * 与传输层解耦：这些函数只处理配置的脱敏、校验、合并与落盘。
  */
 
-import { dirname } from "path";
-import { writeFileSync, readFileSync, existsSync, mkdirSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import json5 from "json5";
-import type { MoziConfig, ProviderId } from "../types/index.js";
-import { getActiveConfigPath } from "../config/index.js";
+import { PROVIDER_IDS, type MoziConfig, type ProviderId } from "../types/index.js";
+import { getActiveConfigPath, MoziConfigSchema } from "../config/index.js";
+import { atomicWriteFile, serializeJson5 } from "../storage/index.js";
 import { getChildLogger } from "../utils/logger.js";
 import type {
   ConfigInfo,
@@ -205,11 +205,7 @@ export function validateConfig(params: ConfigSaveParams): ConfigValidateResult {
 
     // 验证 Agent 配置
     if (params.agent) {
-      const validProviders = [
-        "deepseek", "doubao", "minimax", "kimi", "stepfun", "modelscope",
-        "dashscope", "zhipu", "openai", "ollama", "openrouter",
-        "together", "groq", "custom-openai", "custom-anthropic",
-      ];
+      const validProviders: readonly string[] = PROVIDER_IDS;
       if (params.agent.defaultProvider && !validProviders.includes(params.agent.defaultProvider)) {
         errors.push(`无效的提供商: ${params.agent.defaultProvider}`);
       }
@@ -248,7 +244,6 @@ export async function saveConfig(
 ): Promise<{ success: boolean; message: string; requiresRestart?: boolean }> {
     // 写回实际加载的那个文件，而不是固定的默认路径
     const configPath = getActiveConfigPath();
-    const moziDir = dirname(configPath);
 
     // 验证配置
     const validation = validateConfig(params);
@@ -265,7 +260,12 @@ export async function saveConfig(
       try {
         existingConfig = json5.parse(readFileSync(configPath, "utf-8"));
       } catch (e) {
-        logger.warn({ error: e }, "Failed to parse existing config, creating new");
+        // 解析失败就拒绝写入：否则会把用户原有配置整体覆盖成空
+        logger.error({ error: e, configPath }, "Existing config is unparseable, refusing to overwrite");
+        return {
+          success: false,
+          message: `现有配置文件无法解析（${configPath}），为避免覆盖已有配置已中止保存。请先手工修复该文件。`,
+        };
       }
     }
 
@@ -404,18 +404,19 @@ export async function saveConfig(
       };
     }
 
-    // 确保目录存在
-    if (!existsSync(moziDir)) {
-      mkdirSync(moziDir, { recursive: true });
+    // 落盘前用真实 schema 校验合并后的结果：
+    // 缺字段/字段非法就拒绝写入，避免写出一个下次启动会炸的文件。
+    const parsed = MoziConfigSchema.safeParse(configToSave);
+    if (!parsed.success) {
+      const detail = parsed.error.issues
+        .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
+        .join("; ");
+      logger.warn({ error: detail, configPath }, "Merged config rejected by schema");
+      return { success: false, message: `配置校验失败，未写入: ${detail}` };
     }
 
-    // 生成 JSON5 格式
-    const json5Content = generateJson5(configToSave);
-
-    // 写入文件
-    writeFileSync(configPath, json5Content, "utf-8");
-
-    logger.info({ configPath }, "Configuration saved");
+    // 原子写入（tmp → fsync → rename），覆盖前保留 .bak
+    atomicWriteFile(configPath, serializeJson5(configToSave), { backup: true });
 
     // 检查是否需要重启
     let requiresRestart = false;
@@ -438,43 +439,4 @@ export async function saveConfig(
       message: "配置已保存" + (requiresRestart ? "，需要重启服务才能生效" : ""),
       requiresRestart,
     };
-  }
-
-  /** 生成 JSON5 格式的配置字符串 */
-function generateJson5(obj: unknown, indent = 0): string {
-    const spaces = "  ".repeat(indent);
-    const innerSpaces = "  ".repeat(indent + 1);
-
-    if (obj === null || obj === undefined) {
-      return "null";
-    }
-
-    if (typeof obj === "string") {
-      return `"${obj.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-    }
-
-    if (typeof obj === "number" || typeof obj === "boolean") {
-      return String(obj);
-    }
-
-    if (Array.isArray(obj)) {
-      if (obj.length === 0) return "[]";
-      const items = obj.map((item) => `${innerSpaces}${generateJson5(item, indent + 1)}`);
-      return `[\n${items.join(",\n")}\n${spaces}]`;
-    }
-
-    if (typeof obj === "object") {
-      const entries = Object.entries(obj).filter(([, v]) => v !== undefined);
-      if (entries.length === 0) return "{}";
-
-      const items = entries.map(([key, value]) => {
-        // 使用不带引号的 key（如果是有效的 ECMAScript 标识符）
-        const safeKey = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(key) ? key : `"${key}"`;
-        return `${innerSpaces}${safeKey}: ${generateJson5(value, indent + 1)}`;
-      });
-
-      return `{\n${items.join(",\n")}\n${spaces}}`;
-    }
-
-    return String(obj);
   }

@@ -14,7 +14,7 @@ import { CronService } from "../src/cron/service.js";
 import type { CronSchedule, CronJob, CronJobCreate } from "../src/cron/types.js";
 import { TIME_CONSTANTS } from "../src/cron/types.js";
 
-// Mock fs 模块
+// Mock fs 模块：写路径走 shared storage 的原子写，因此 openSync/writeSync 也要提供
 vi.mock("fs", () => ({
   existsSync: vi.fn(() => false),
   mkdirSync: vi.fn(),
@@ -22,6 +22,11 @@ vi.mock("fs", () => ({
   writeFileSync: vi.fn(),
   renameSync: vi.fn(),
   copyFileSync: vi.fn(),
+  openSync: vi.fn(() => 1),
+  writeSync: vi.fn(() => 0),
+  fsyncSync: vi.fn(),
+  closeSync: vi.fn(),
+  unlinkSync: vi.fn(),
 }));
 
 describe("cron/schedule", () => {

@@ -9,6 +9,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import { JsonlAppender, atomicWriteFile } from "../storage/index.js";
 import {
   DURABLE_FORMAT_VERSION,
   type DurableRecord,
@@ -46,6 +47,7 @@ export class DurableJournal {
   /** 已提交的最大序号（appending 会推进它） */
   lastSeq = 0;
   private initialized = false;
+  private readonly appender: JsonlAppender;
 
   constructor(filePath: string, options: JournalOptions = {}) {
     this.filePath = filePath;
@@ -53,6 +55,7 @@ export class DurableJournal {
       fsync: options.fsync ?? false,
       maxCorruptLines: options.maxCorruptLines ?? 100,
     };
+    this.appender = new JsonlAppender(filePath, { fsync: this.options.fsync });
   }
 
   /**
@@ -121,14 +124,7 @@ export class DurableJournal {
   }
 
   private writeLines(lines: JournalLine[], fsync = false): void {
-    const payload = lines.map((line) => JSON.stringify(line)).join("\n") + "\n";
-    const fd = fs.openSync(this.filePath, "a");
-    try {
-      fs.writeSync(fd, payload);
-      if (fsync) fs.fsyncSync(fd);
-    } finally {
-      fs.closeSync(fd);
-    }
+    this.appender.append(lines, fsync);
   }
 
   /** 原子重写（仅用于丢弃损坏/未提交尾部） */
@@ -148,8 +144,11 @@ export class DurableJournal {
       };
       lines.push(JSON.stringify(commit));
     }
-    fs.writeFileSync(tmp, lines.length > 0 ? lines.join("\n") + "\n" : "", "utf-8");
-    fs.renameSync(tmp, this.filePath);
+    // 用共享的原子写（tmp → fsync → rename → fsync(dir)）：
+    // 之前这里既没 fsync 也没走统一实现，断电可能留下空日志。
+    atomicWriteFile(this.filePath, lines.length > 0 ? lines.join("\n") + "\n" : "", {
+      fsync: this.options.fsync,
+    });
   }
 
   private parse(content: string): JournalLoadResult {

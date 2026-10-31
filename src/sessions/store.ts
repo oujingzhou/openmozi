@@ -7,6 +7,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import { randomUUID } from "crypto";
+import { atomicWriteJson, JsonlAppender } from "../storage/index.js";
 import { getChildLogger } from "../utils/logger.js";
 import { generateId } from "../utils/index.js";
 import type {
@@ -60,6 +61,8 @@ export class FileSessionStore {
   private cacheTime = 0;
   private cacheTTL = 30_000; // 30秒缓存
   private writeLock = new WriteLock();
+  /** 索引解析失败置位；此时任何写入都会丢历史，必须拒绝 */
+  private indexCorrupted = false;
 
   constructor(storePath?: string) {
     this.storePath = storePath ?? getDefaultStorePath();
@@ -83,32 +86,61 @@ export class FileSessionStore {
     }
 
     if (!fs.existsSync(this.indexFile)) {
+      this.indexCorrupted = false;
       return new Map();
     }
 
     try {
-      const content = await fs.promises.readFile(this.indexFile, "utf-8");
-      const data = JSON.parse(content) as Record<string, SessionEntry>;
-      this.cache = new Map(Object.entries(data));
+      this.cache = this.parseIndex(await fs.promises.readFile(this.indexFile, "utf-8"));
       this.cacheTime = Date.now();
+      this.indexCorrupted = false;
       return this.cache;
     } catch (error) {
-      logger.error({ error }, "Failed to load session index");
+      // 主文件损坏：先尝试用 .bak 恢复，避免历史整体消失。
+      logger.error({ error, indexFile: this.indexFile }, "Session index is corrupt, trying backup");
+      const backupFile = `${this.indexFile}.bak`;
+      if (fs.existsSync(backupFile)) {
+        try {
+          const restored = this.parseIndex(await fs.promises.readFile(backupFile, "utf-8"));
+          this.cache = restored;
+          this.cacheTime = Date.now();
+          this.indexCorrupted = false;
+          logger.warn(
+            { indexFile: this.indexFile, entries: restored.size },
+            "Session index restored from backup; corrupt file kept alongside"
+          );
+          return restored;
+        } catch (backupError) {
+          logger.error({ error: backupError, backupFile }, "Session index backup is also corrupt");
+        }
+      }
+
+      // 两份都读不了：拒绝写入，保留现场等待人工处理。
+      this.indexCorrupted = true;
       return new Map();
     }
   }
 
+  /** 解析索引文件内容，结构不符即抛错 */
+  private parseIndex(content: string): Map<string, SessionEntry> {
+    const data = JSON.parse(content) as unknown;
+    if (data === null || typeof data !== "object" || Array.isArray(data)) {
+      throw new Error("Session index is not a JSON object");
+    }
+    return new Map(Object.entries(data as Record<string, SessionEntry>));
+   }
+
   /** 保存索引 */
   private async saveIndex(index: Map<string, SessionEntry>): Promise<void> {
+    if (this.indexCorrupted) {
+      throw new Error(
+        `会话索引已损坏（${this.indexFile}），已拒绝写入以免覆盖历史。请修复或删除该文件后重试。`
+      );
+    }
+
     await this.writeLock.acquire();
     try {
-      const data = Object.fromEntries(index);
-      const content = JSON.stringify(data, null, 2);
-      const tmpFile = `${this.indexFile}.${randomUUID()}.tmp`;
-
-      await fs.promises.writeFile(tmpFile, content, "utf-8");
-      await fs.promises.rename(tmpFile, this.indexFile);
-
+      atomicWriteJson(this.indexFile, Object.fromEntries(index), { backup: true, fsync: false });
       this.cache = index;
       this.cacheTime = Date.now();
     } finally {
@@ -305,7 +337,8 @@ export class FileSessionStore {
     const transcriptPath = this.getTranscriptPath(sessionId);
     const isNew = !fs.existsSync(transcriptPath);
 
-    // 如果是新文件，先写入头部
+    // 头部与消息一次写入，避免中途崩溃留下"有头无消息"的半截文件
+    const lines: unknown[] = [];
     if (isNew) {
       const header: TranscriptHeader = {
         type: "session",
@@ -315,11 +348,11 @@ export class FileSessionStore {
         timestamp: new Date().toISOString(),
         cwd: process.cwd(),
       };
-      await fs.promises.appendFile(transcriptPath, JSON.stringify(header) + "\n");
+      lines.push(header);
     }
+    lines.push(message);
 
-    // 追加消息
-    await fs.promises.appendFile(transcriptPath, JSON.stringify(message) + "\n");
+    new JsonlAppender(transcriptPath).append(lines);
 
     // 更新会话索引
     const entry = await this.get(sessionKey);

@@ -3,9 +3,10 @@
  * 基于企业微信服务端 API
  */
 
-import axios, { type AxiosInstance } from "axios";
 import { getChildLogger } from "../../utils/logger.js";
 import type { WeComConfig } from "../../types/index.js";
+import { ChannelHttpClient } from "../common/http.js";
+import { TokenProvider } from "../common/token.js";
 
 const logger = getChildLogger("wecom-api");
 
@@ -27,52 +28,37 @@ interface SendMessageResponse {
 
 export class WeComApiClient {
   private config: WeComConfig;
-  private client: AxiosInstance;
-  private tokenCache: TokenCache | null = null;
+  private http: ChannelHttpClient;
+  private tokens: TokenProvider;
 
   constructor(config: WeComConfig) {
     this.config = config;
-    this.client = axios.create({
-      baseURL: WECOM_API_BASE,
-      timeout: 30000,
-      headers: {
-        "Content-Type": "application/json",
+    this.http = new ChannelHttpClient({ baseUrl: WECOM_API_BASE });
+    this.tokens = new TokenProvider({
+      fetch: async () => {
+        const data = await this.http.requestJson<{
+          access_token?: string;
+          expires_in?: number;
+          errcode?: number;
+          errmsg?: string;
+        }>({
+          path: "/gettoken",
+          query: { corpid: this.config.corpId, corpsecret: this.config.corpSecret },
+        });
+
+        if (data.errcode && data.errcode !== 0) {
+          throw new Error(`WeCom API error: ${data.errcode} - ${data.errmsg}`);
+        }
+        if (!data.access_token) throw new Error("WeCom returned no access_token");
+
+        return { token: data.access_token, expiresInSec: data.expires_in };
       },
     });
   }
 
-  /** 获取 Access Token */
+  /** 获取 Access Token（并发共享同一次请求） */
   async getAccessToken(): Promise<string> {
-    // 检查缓存
-    if (this.tokenCache && this.tokenCache.expiresAt > Date.now() + 60000) {
-      return this.tokenCache.accessToken;
-    }
-
-    try {
-      const response = await this.client.get("/gettoken", {
-        params: {
-          corpid: this.config.corpId,
-          corpsecret: this.config.corpSecret,
-        },
-      });
-
-      const { access_token, expires_in, errcode, errmsg } = response.data;
-
-      if (errcode && errcode !== 0) {
-        throw new Error(`WeCom API error: ${errcode} - ${errmsg}`);
-      }
-
-      this.tokenCache = {
-        accessToken: access_token,
-        expiresAt: Date.now() + expires_in * 1000,
-      };
-
-      logger.debug("Access token refreshed");
-      return access_token;
-    } catch (error) {
-      logger.error({ error }, "Failed to get access token");
-      throw error;
-    }
+    return this.tokens.get();
   }
 
   /** 发送应用消息 (文本) */
@@ -80,25 +66,24 @@ export class WeComApiClient {
     userId: string,
     content: string
   ): Promise<SendMessageResponse> {
-    const token = await this.getAccessToken();
-
-    const data = {
-      touser: userId,
-      msgtype: "text",
-      agentid: this.config.agentId,
-      text: {
-        content,
+    const response = await this.http.requestJson<SendMessageResponse>({
+      method: "POST",
+      path: "/message/send",
+      query: { access_token: await this.tokens.get() },
+      body: {
+        touser: userId,
+        msgtype: "text",
+        agentid: this.config.agentId,
+        text: { content },
       },
-    };
+    });
 
-    const response = await this.client.post(`/message/send?access_token=${token}`, data);
-
-    if (response.data.errcode !== 0) {
-      throw new Error(`WeCom send error: ${response.data.errcode} - ${response.data.errmsg}`);
+    if (response.errcode !== 0) {
+      throw new Error(`WeCom send error: ${response.errcode} - ${response.errmsg}`);
     }
 
-    logger.debug({ userId, msgid: response.data.msgid }, "Text message sent");
-    return response.data;
+    logger.debug({ userId, msgid: response.msgid }, "Text message sent");
+    return response;
   }
 
   /** 发送群聊消息 */
@@ -106,36 +91,32 @@ export class WeComApiClient {
     chatId: string,
     content: string
   ): Promise<SendMessageResponse> {
-    const token = await this.getAccessToken();
+    const response = await this.http.requestJson<SendMessageResponse>({
+      method: "POST",
+      path: "/appchat/send",
+      query: { access_token: await this.tokens.get() },
+      body: { chatid: chatId, msgtype: "text", text: { content } },
+    });
 
-    const data = {
-      chatid: chatId,
-      msgtype: "text",
-      text: {
-        content,
-      },
-    };
-
-    const response = await this.client.post(`/appchat/send?access_token=${token}`, data);
-
-    if (response.data.errcode !== 0) {
-      throw new Error(`WeCom group send error: ${response.data.errcode} - ${response.data.errmsg}`);
+    if (response.errcode !== 0) {
+      throw new Error(`WeCom group send error: ${response.errcode} - ${response.errmsg}`);
     }
 
     logger.debug({ chatId }, "Group text message sent");
-    return response.data;
+    return response;
   }
 
   /** 获取用户信息 */
   async getUserInfo(userId: string): Promise<{ name: string; userid: string }> {
-    const token = await this.getAccessToken();
+    const response = await this.http.requestJson<{ errcode: number; errmsg: string; name: string; userid: string }>({
+      path: "/user/get",
+      query: { access_token: await this.tokens.get(), userid: userId },
+    });
 
-    const response = await this.client.get(`/user/get?access_token=${token}&userid=${userId}`);
-
-    if (response.data.errcode !== 0) {
-      throw new Error(`WeCom get user error: ${response.data.errcode} - ${response.data.errmsg}`);
+    if (response.errcode !== 0) {
+      throw new Error(`WeCom get user error: ${response.errcode} - ${response.errmsg}`);
     }
 
-    return response.data;
+    return response;
   }
 }

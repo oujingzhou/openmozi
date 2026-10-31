@@ -4,7 +4,7 @@
 
 import type { Model, Api, Provider } from "@mariozechner/pi-ai";
 import { getModel } from "@mariozechner/pi-ai";
-import type { ProviderId, SimpleProviderConfig, MoziConfig, ModelDefinition } from "../types/index.js";
+import { CHINA_PROVIDER_IDS, type ProviderId, type SimpleProviderConfig, type MoziConfig, type ModelDefinition } from "../types/index.js";
 import { getChildLogger } from "../utils/logger.js";
 
 const logger = getChildLogger("model-resolver");
@@ -26,7 +26,6 @@ const CHINA_PROVIDER_BASE_URLS: Record<string, string> = {
   deepseek: "https://api.deepseek.com/v1",
   kimi: "https://api.moonshot.cn/v1",
   stepfun: "https://api.stepfun.com/v1",
-  doubao: "https://ark.cn-beijing.volces.com/api/v3",
   minimax: "https://api.minimax.chat/v1/text/chatcompletion_v2",
   modelscope: "https://api-inference.modelscope.cn/v1",
   dashscope: "https://dashscope.aliyuncs.com/compatible-mode/v1",
@@ -38,11 +37,6 @@ const CHINA_PROVIDER_MODELS: Record<string, ModelDefinition[]> = {
   deepseek: [
     { id: "deepseek-chat", name: "DeepSeek Chat", provider: "deepseek", api: "openai-compatible", contextWindow: 64000, maxTokens: 8192, supportsVision: false, supportsReasoning: false },
     { id: "deepseek-reasoner", name: "DeepSeek Reasoner (R1)", provider: "deepseek", api: "openai-compatible", contextWindow: 64000, maxTokens: 8192, supportsVision: false, supportsReasoning: true },
-  ],
-  doubao: [
-    { id: "doubao-seed-1-8-251228", name: "豆包 Seed 1.8", provider: "doubao", api: "openai-compatible", contextWindow: 262144, maxTokens: 32768, supportsVision: true, supportsReasoning: true },
-    { id: "doubao-seed-1-6-lite-251015", name: "豆包 Seed 1.6 Lite", provider: "doubao", api: "openai-compatible", contextWindow: 262144, maxTokens: 32768, supportsVision: true, supportsReasoning: true },
-    { id: "doubao-seed-1-6-flash-250828", name: "豆包 Seed 1.6 Flash", provider: "doubao", api: "openai-compatible", contextWindow: 262144, maxTokens: 32768, supportsVision: true, supportsReasoning: true },
   ],
   kimi: [
     { id: "kimi-k2.5", name: "Kimi K2.5", provider: "kimi", api: "openai-compatible", contextWindow: 128000, maxTokens: 65536, supportsVision: true, supportsReasoning: true },
@@ -277,7 +271,7 @@ export function initModelResolver(config: MoziConfig): void {
   modelRegistry.clear();
   providerConfigs = config.providers as Record<string, SimpleProviderConfig>;
 
-  const chinaProviders = ["deepseek", "doubao", "kimi", "stepfun", "minimax", "modelscope", "dashscope", "zhipu"];
+  const chinaProviders: readonly string[] = CHINA_PROVIDER_IDS;
 
   for (const [id, providerConfig] of Object.entries(providerConfigs)) {
     if (!providerConfig) continue;

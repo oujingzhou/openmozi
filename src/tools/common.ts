@@ -4,8 +4,20 @@
 
 import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 
+/**
+ * 工具结果 + 错误标记。
+ *
+ * pi 的 `AgentToolResult` 没有 isError 字段，只有抛异常才算失败。
+ * 但我们希望"拒绝访问""命令被拦截""退出码非 0"这类结果既保留内容、
+ * 又让模型知道这是失败。于是把意图挂在返回对象上，
+ * 由 runtime 的 afterToolCall 提升成 pi 的 isError 标志。
+ */
+export interface MoziToolResult<T = unknown> extends AgentToolResult<T> {
+  isError?: boolean;
+}
+
 /** 创建 JSON 结果 */
-export function jsonResult(payload: unknown, isError = false): AgentToolResult<unknown> {
+export function jsonResult(payload: unknown, isError = false): MoziToolResult {
   return {
     content: [
       {
@@ -14,19 +26,21 @@ export function jsonResult(payload: unknown, isError = false): AgentToolResult<u
       },
     ],
     details: payload,
+    ...(isError ? { isError: true } : {}),
   };
 }
 
 /** 创建文本结果 */
-export function textResult(text: string, details?: unknown, isError = false): AgentToolResult<unknown> {
+export function textResult(text: string, details?: unknown, isError = false): MoziToolResult {
   return {
     content: [{ type: "text", text }],
     details: details ?? {},
+    ...(isError ? { isError: true } : {}),
   };
 }
 
 /** 创建错误结果 */
-export function errorResult(error: string | Error): AgentToolResult<unknown> {
+export function errorResult(error: string | Error): MoziToolResult {
   const message = error instanceof Error ? error.message : error;
   return {
     content: [
@@ -36,6 +50,7 @@ export function errorResult(error: string | Error): AgentToolResult<unknown> {
       },
     ],
     details: { status: "error", error: message },
+    isError: true,
   };
 }
 

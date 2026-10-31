@@ -4,15 +4,12 @@
 
 import type { FeishuConfig } from "../../types/index.js";
 import { getChildLogger } from "../../utils/logger.js";
-import { retry } from "../../utils/index.js";
-import NodeCache from "node-cache";
+import { ChannelHttpClient } from "../common/http.js";
+import { TokenProvider } from "../common/token.js";
 
 const logger = getChildLogger("feishu-api");
 
 const FEISHU_API_BASE = "https://open.feishu.cn/open-apis";
-
-/** Token 缓存 */
-const tokenCache = new NodeCache({ stdTTL: 7000 }); // token 有效期 2 小时，提前 200 秒刷新
 
 /** 飞书 API 响应基础结构 */
 interface FeishuApiResponse<T = unknown> {
@@ -38,75 +35,41 @@ type MessageContentType = "text" | "post" | "image" | "interactive";
 /** 飞书 API 客户端 */
 export class FeishuApiClient {
   private config: FeishuConfig;
+  private http: ChannelHttpClient;
+  private tokens: TokenProvider;
 
   constructor(config: FeishuConfig) {
     this.config = config;
+    this.http = new ChannelHttpClient({ baseUrl: FEISHU_API_BASE });
+    this.tokens = new TokenProvider({
+      fetch: async () => {
+        const data = await this.http.requestJson<TenantAccessTokenResponse>({
+          method: "POST",
+          path: "/auth/v3/tenant_access_token/internal",
+          body: { app_id: this.config.appId, app_secret: this.config.appSecret },
+        });
+        if (!data.tenant_access_token) {
+          throw new Error("No tenant access token in response");
+        }
+        return { token: data.tenant_access_token, expiresInSec: data.expire };
+      },
+    });
   }
 
-  /** 获取 Tenant Access Token */
+  /** 获取 Tenant Access Token（并发共享同一次请求） */
   async getTenantAccessToken(): Promise<string> {
-    const cacheKey = `feishu_token_${this.config.appId}`;
-    const cached = tokenCache.get<string>(cacheKey);
-    if (cached) {
-      return cached;
-    }
-
-    logger.debug("Fetching new tenant access token");
-
-    const response = await fetch(`${FEISHU_API_BASE}/auth/v3/tenant_access_token/internal`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        app_id: this.config.appId,
-        app_secret: this.config.appSecret,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to get tenant access token: ${response.status}`);
-    }
-
-    const data = (await response.json()) as TenantAccessTokenResponse;
-
-    if (!data.tenant_access_token) {
-      throw new Error("No tenant access token in response");
-    }
-
-    // 缓存 token
-    tokenCache.set(cacheKey, data.tenant_access_token);
-
-    return data.tenant_access_token;
+    return this.tokens.get();
   }
 
   /** 发送请求 */
-  private async request<T>(
-    method: string,
-    path: string,
-    body?: unknown
-  ): Promise<T> {
-    const token = await this.getTenantAccessToken();
-
-    const response = await retry(
-      async () => {
-        const res = await fetch(`${FEISHU_API_BASE}${path}`, {
-          method,
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: body ? JSON.stringify(body) : undefined,
-        });
-
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}: ${await res.text()}`);
-        }
-
-        return res;
-      },
-      { maxRetries: 3, delayMs: 1000 }
-    );
-
-    const data = (await response.json()) as FeishuApiResponse<T>;
+  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+    const token = await this.tokens.get();
+    const data = await this.http.requestJson<FeishuApiResponse<T>>({
+      method: method as "GET" | "POST",
+      path,
+      body,
+      headers: { Authorization: `Bearer ${token}` },
+    });
 
     if (data.code !== 0) {
       throw new Error(`Feishu API Error [${data.code}]: ${data.msg}`);

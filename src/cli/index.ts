@@ -12,6 +12,8 @@ import { createLogger, setLogger, getLogDir, getLogFile } from "../utils/logger.
 import dotenv from "dotenv";
 import { spawn } from "child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
+import { serializeJson5 } from "../storage/index.js";
+import { CHINA_PROVIDER_IDS } from "../types/index.js";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 
@@ -183,7 +185,7 @@ program
 
       // 检查提供商
       console.log("📦 模型提供商:");
-      const chinaProviders = ["deepseek", "doubao", "zhipu", "dashscope", "kimi", "stepfun", "minimax", "modelscope"] as const;
+      const chinaProviders = CHINA_PROVIDER_IDS;
       for (const id of chinaProviders) {
         const providerConfig = config.providers[id];
         const status = providerConfig?.apiKey ? "✅ 已配置" : "⬜ 未配置";
@@ -297,7 +299,7 @@ program
 
     // 步骤 1: 选择配置模式
     console.log("\n📦 步骤 1/5: 选择提供商类型\n");
-    console.log("  1. 国产模型 (DeepSeek, 豆包, 智谱AI, DashScope, Kimi, 阶跃星辰, MiniMax, ModelScope)");
+    console.log("  1. 国产模型 (DeepSeek, 智谱AI, DashScope, Kimi, 阶跃星辰, MiniMax, ModelScope)");
     console.log("  2. 自定义 OpenAI 兼容接口 (支持任意 OpenAI API 格式的服务)");
     console.log("  3. 自定义 Anthropic 兼容接口 (支持任意 Claude API 格式的服务)");
     console.log("");
@@ -316,15 +318,6 @@ program
         if (!defaultProvider) {
           defaultProvider = "deepseek";
           defaultModel = "deepseek-chat";
-        }
-      }
-
-      const doubaoKey = await question("豆包 API Key (火山引擎 ARK，深度思考模型): ");
-      if (doubaoKey.trim()) {
-        config.providers["doubao"] = { apiKey: doubaoKey.trim() };
-        if (!defaultProvider) {
-          defaultProvider = "doubao";
-          defaultModel = "doubao-seed-1-8-251228";
         }
       }
 
@@ -634,7 +627,7 @@ program
     if (Object.keys(config.memory).length === 0) delete (config as Record<string, unknown>).memory;
 
     // 生成 JSON5 格式配置
-    const configContent = generateJson5(config);
+    const configContent = serializeJson5(config);
 
     // 配置文件路径
     const moziDir = path.join(os.homedir(), ".mozi");
@@ -651,7 +644,7 @@ program
       if (!fs.existsSync(moziDir)) {
         fs.mkdirSync(moziDir, { recursive: true });
       }
-      fs.writeFileSync(configPath, configContent);
+      fs.writeFileSync(configPath, configContent, { mode: 0o600 });
       console.log(`\n✅ 配置已保存到 ${configPath}`);
     } else {
       console.log("\n📋 请手动将上述配置保存到配置文件中。");
@@ -687,45 +680,6 @@ ${startNote.padEnd(61)}║
 
     rl.close();
   });
-
-/** 生成 JSON5 格式的配置字符串 */
-function generateJson5(obj: unknown, indent = 0): string {
-  const spaces = "  ".repeat(indent);
-  const innerSpaces = "  ".repeat(indent + 1);
-
-  if (obj === null || obj === undefined) {
-    return "null";
-  }
-
-  if (typeof obj === "string") {
-    return `"${obj.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-  }
-
-  if (typeof obj === "number" || typeof obj === "boolean") {
-    return String(obj);
-  }
-
-  if (Array.isArray(obj)) {
-    if (obj.length === 0) return "[]";
-    const items = obj.map((item) => `${innerSpaces}${generateJson5(item, indent + 1)}`);
-    return `[\n${items.join(",\n")}\n${spaces}]`;
-  }
-
-  if (typeof obj === "object") {
-    const entries = Object.entries(obj).filter(([, v]) => v !== undefined);
-    if (entries.length === 0) return "{}";
-
-    const items = entries.map(([key, value]) => {
-      // 使用不带引号的 key（如果是有效的 ECMAScript 标识符）
-      const safeKey = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(key) ? key : `"${key}"`;
-      return `${innerSpaces}${safeKey}: ${generateJson5(value, indent + 1)}`;
-    });
-
-    return `{\n${items.join(",\n")}\n${spaces}}`;
-  }
-
-  return String(obj);
-}
 
 // 停止服务命令
 program

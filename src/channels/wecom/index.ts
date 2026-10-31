@@ -9,7 +9,6 @@ import type {
   WeComConfig,
   ChannelMeta,
   OutboundMessage,
-  SendResult,
 } from "../../types/index.js";
 import { BaseChannelAdapter } from "../common/base.js";
 import { WeComApiClient } from "./api.js";
@@ -83,42 +82,19 @@ export class WeComChannel extends BaseChannelAdapter {
     this.initialized = false;
   }
 
-  /** 发送消息 */
-  async sendMessage(message: OutboundMessage): Promise<SendResult> {
-    try {
-      const { chatId, content } = message;
-
-      // 根据 chatId 前缀判断消息类型
-      if (chatId.startsWith("direct:")) {
-        // 私聊消息
-        const userId = chatId.replace("direct:", "");
-        await this.apiClient.sendTextMessage(userId, content);
-      } else {
-        // 群聊消息
-        await this.apiClient.sendGroupTextMessage(chatId, content);
-      }
-
-      return { success: true };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error({ error, message }, "Failed to send message");
-      return { success: false, error: errorMessage };
+  /** 发送消息：direct: 前缀走应用消息，其余按群聊 */
+  protected async doSend(message: OutboundMessage): Promise<void> {
+    const { chatId, content } = message;
+    if (chatId.startsWith("direct:")) {
+      await this.apiClient.sendTextMessage(chatId.slice("direct:".length), content);
+    } else {
+      await this.apiClient.sendGroupTextMessage(chatId, content);
     }
   }
 
-  /** 发送文本消息 */
-  async sendText(chatId: string, text: string, _replyToId?: string): Promise<SendResult> {
-    return this.sendMessage({ chatId, content: text });
-  }
-
-  /** 检查通道状态 */
-  async isHealthy(): Promise<boolean> {
-    try {
-      await this.apiClient.getAccessToken();
-      return true;
-    } catch {
-      return false;
-    }
+  /** 健康检查：能取到 access token 即认为正常 */
+  protected async checkHealth(): Promise<void> {
+    await this.apiClient.getAccessToken();
   }
 
   /** 创建 Express 路由处理器 */

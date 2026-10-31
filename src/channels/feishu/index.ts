@@ -9,7 +9,6 @@ import type {
   FeishuConfig,
   ChannelMeta,
   OutboundMessage,
-  SendResult,
 } from "../../types/index.js";
 import { BaseChannelAdapter } from "../common/base.js";
 import { FeishuApiClient } from "./api.js";
@@ -108,44 +107,19 @@ export class FeishuChannel extends BaseChannelAdapter {
     this.initialized = false;
   }
 
-  /** 发送消息 */
-  async sendMessage(message: OutboundMessage): Promise<SendResult> {
-    try {
-      let messageId: string;
-
-      if (message.replyToId) {
-        messageId = await this.apiClient.replyText(message.replyToId, message.content);
-      } else {
-        messageId = await this.apiClient.sendText(message.chatId, message.content);
-      }
-
-      return { success: true, messageId };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error({ error, message }, "Failed to send message");
-      return { success: false, error: errorMessage };
+  /** 发送消息：错误处理与日志由基类统一负责 */
+  protected async doSend(message: OutboundMessage): Promise<string> {
+    if (message.replyToId) {
+      return this.apiClient.replyText(message.replyToId, message.content);
     }
+    return this.apiClient.sendText(message.chatId, message.content);
   }
 
-  /** 发送文本消息 */
-  async sendText(chatId: string, text: string, replyToId?: string): Promise<SendResult> {
-    return this.sendMessage({ chatId, content: text, replyToId });
-  }
-
-  /** 检查通道状态 */
-  async isHealthy(): Promise<boolean> {
-    try {
-      // 检查 API 认证
-      await this.apiClient.getTenantAccessToken();
-
-      // 检查 WebSocket 连接状态
-      if (this.wsClient) {
-        return this.wsClient.isConnected();
-      }
-
-      return true;
-    } catch {
-      return false;
+  /** 健康检查：能取到 tenant token 且长连接在线 */
+  protected async checkHealth(): Promise<void> {
+    await this.apiClient.getTenantAccessToken();
+    if (this.wsClient && !this.wsClient.isConnected()) {
+      throw new Error("Feishu WebSocket is disconnected");
     }
   }
 

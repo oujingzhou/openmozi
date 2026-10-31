@@ -2,10 +2,10 @@
  * 飞书事件处理
  */
 
-import crypto from "crypto";
 import type { FeishuConfig, InboundMessageContext, ChatType } from "../../types/index.js";
 import { getChildLogger } from "../../utils/logger.js";
 import { aesDecrypt } from "../../utils/index.js";
+import { isFreshTimestamp, safeEqual, sha256Hex } from "../common/signature.js";
 
 const logger = getChildLogger("feishu-events");
 
@@ -90,17 +90,25 @@ export class FeishuEventHandler {
     this.config = config;
   }
 
-  /** 验证事件签名 */
+  /**
+   * 验证事件签名。
+   *
+   * - 未配置 verificationToken 时**失败关闭**：宁可拒绝回调也不放行伪造请求。
+   * - 校验时间戳窗口，避免抓包重放。
+   * - 常量时间比较，避免按字节泄露签名。
+   */
   verifySignature(timestamp: string, nonce: string, body: string, signature: string): boolean {
     if (!this.config.verificationToken) {
-      logger.warn("No verification token configured, skipping signature verification");
-      return true;
+      logger.error("No verification token configured; rejecting callback");
+      return false;
+    }
+    if (!isFreshTimestamp(timestamp)) {
+      logger.warn({ timestamp }, "Feishu callback timestamp outside allowed window");
+      return false;
     }
 
     const content = timestamp + nonce + this.config.verificationToken + body;
-    const hash = crypto.createHash("sha256").update(content).digest("hex");
-
-    return hash === signature;
+    return safeEqual(sha256Hex(content), signature);
   }
 
   /** 解密事件 */

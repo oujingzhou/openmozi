@@ -25,6 +25,7 @@ vi.mock("@mariozechner/pi-coding-agent", () => ({
       agent: {
         setSystemPrompt: vi.fn(),
         setTools: vi.fn(),
+        setAfterToolCall: vi.fn(),
         waitForIdle: vi.fn().mockResolvedValue(undefined),
         abort: vi.fn(),
       },

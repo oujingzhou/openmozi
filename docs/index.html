@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Mozi (墨子) — 国产生态 AI 助手框架</title>
-  <meta name="description" content="支持国产大模型和国产通讯软件的轻量级智能助手框架。DeepSeek、豆包、Qwen、Kimi 等模型，QQ、飞书、钉钉、企业微信全平台接入。" />
+  <meta name="description" content="支持国产大模型和国产通讯软件的轻量级智能助手框架。DeepSeek、Qwen、Kimi、智谱AI、MiniMax、阶跃星辰等 16 个模型提供商，QQ、飞书、钉钉、企业微信全平台接入，内置 Durable Execution 崩溃恢复。" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
@@ -846,6 +846,8 @@
         <li><a href="#features">Features</a></li>
         <li><a href="#providers">Models</a></li>
         <li><a href="#channels">Channels</a></li>
+        <li><a href="#tools">Tools</a></li>
+        <li><a href="#architecture">Architecture</a></li>
         <li><a href="#quickstart">Quick Start</a></li>
         <li><a href="https://github.com/King-Chau/mozi" target="_blank" class="nav-cta">GitHub &rarr;</a></li>
       </ul>
@@ -862,14 +864,14 @@
       </div>
       <div class="hero-badge">
         <span class="badge-dot"></span>
-        v1.6.2 &mdash; 专注国产生态
+        v2.0.0 &mdash; 专注国产生态
       </div>
       <h1>
         <span class="gradient-text">Mozi</span> 墨子
       </h1>
       <p class="hero-subtitle">
         支持<strong>国产大模型</strong>和<strong>国产通讯软件</strong>的轻量级 AI 助手框架。<br />
-        用 3% 的代码量实现核心功能，简洁高效，易于二次开发。
+        Durable Execution 保证进程崩溃后回合可恢复，约 2 万行代码，简洁高效，易于二次开发。
       </p>
       <div class="hero-actions">
         <a href="#quickstart" class="btn btn-primary">Quick Start &darr;</a>
@@ -887,11 +889,11 @@
       </div>
       <div class="hero-stats">
         <div class="stat-item">
-          <div class="stat-value">~16K</div>
+          <div class="stat-value">~20K</div>
           <div class="stat-label">Lines of Code</div>
         </div>
         <div class="stat-item">
-          <div class="stat-value">12+</div>
+          <div class="stat-value">16</div>
           <div class="stat-label">Model Providers</div>
         </div>
         <div class="stat-item">
@@ -899,7 +901,7 @@
           <div class="stat-label">Chat Platforms</div>
         </div>
         <div class="stat-item">
-          <div class="stat-value">25</div>
+          <div class="stat-value">20</div>
           <div class="stat-label">Built-in Tools</div>
         </div>
       </div>
@@ -918,7 +920,7 @@
         <div class="feature-card">
           <div class="feature-icon green">&#x1f916;</div>
           <h3>多模型支持</h3>
-          <p>DeepSeek、豆包、Qwen、智谱AI、Kimi、阶跃星辰、MiniMax，以及 OpenAI/Anthropic 兼容格式。统一接口，自由切换。</p>
+          <p>DeepSeek、Qwen、智谱AI、Kimi、阶跃星辰、MiniMax、ModelScope，以及 OpenAI/Anthropic 兼容格式。统一接口，自由切换。</p>
         </div>
         <div class="feature-card">
           <div class="feature-icon blue">&#x1f4ac;</div>
@@ -928,7 +930,7 @@
         <div class="feature-card">
           <div class="feature-icon amber">&#x1f527;</div>
           <h3>Function Calling</h3>
-          <p>原生支持 OpenAI tools/tool_choice 参数，25 个内置工具涵盖文件操作、Bash 执行、网络搜索、定时任务等。</p>
+          <p>原生支持 OpenAI tools/tool_choice 参数，20 个内置工具涵盖文件操作、Bash 执行、网页抓取、浏览器自动化、记忆等。</p>
         </div>
         <div class="feature-card">
           <div class="feature-icon green">&#x1f9e0;</div>
@@ -938,12 +940,12 @@
         <div class="feature-card">
           <div class="feature-icon blue">&#x23f0;</div>
           <h3>定时任务 (Cron)</h3>
-          <p>支持一次性、周期性、Cron 表达式三种调度方式。可通过对话创建和管理定时任务。</p>
+          <p>支持一次性、周期性、Cron 表达式三种调度方式，可执行 Agent 回合并主动投递到指定通道。</p>
         </div>
         <div class="feature-card">
-          <div class="feature-icon amber">&#x1f9e9;</div>
-          <h3>插件系统</h3>
-          <p>可扩展的插件架构，支持自动发现和加载。通过 PluginApi 注册工具和 Hook。</p>
+          <div class="feature-icon amber">&#x1f6df;</div>
+          <h3>Durable Execution</h3>
+          <p>回合、step、工具调用意图全部写入追加日志。进程崩溃后重启自动把未完成的工具调用标记为中断，不会留下悬空调用。</p>
         </div>
         <div class="feature-card">
           <div class="feature-icon green">&#x1f3af;</div>
@@ -953,12 +955,12 @@
         <div class="feature-card">
           <div class="feature-icon blue">&#x1f310;</div>
           <h3>浏览器自动化</h3>
-          <p>基于 Playwright 的浏览器控制，支持多配置文件管理、截图增强、元素交互。</p>
+          <p>基于 Playwright 的浏览器控制：导航、元素快照与引用、点击、输入、滚动、截图、执行 JS，可用于端到端调试。</p>
         </div>
         <div class="feature-card">
           <div class="feature-icon amber">&#x26a1;</div>
           <h3>轻量高效</h3>
-          <p>~16,000 行代码实现完整 Agent 核心功能。代码结构清晰，适合学习 Agent 架构设计和二次开发。</p>
+          <p>约 2 万行 TypeScript 实现完整 Agent 核心功能。代码结构清晰，适合学习 Agent 架构设计和二次开发。</p>
         </div>
       </div>
     </div>
@@ -969,14 +971,13 @@
     <div class="container">
       <div class="section-header">
         <div class="section-tag">Models</div>
-        <h2 class="section-title">支持 12+ 模型提供商</h2>
-        <p class="section-desc">国产模型优先，兼容 OpenAI/Anthropic 格式，支持本地部署</p>
+        <h2 class="section-title">支持 16 个模型提供商</h2>
+        <p class="section-desc">国产模型优先，兼容 OpenAI/Anthropic 格式，支持本地部署与自定义端点</p>
       </div>
       <div class="providers-group">
         <div class="providers-group-title">国产模型</div>
         <div class="providers-logos">
           <div class="provider-chip"><span class="dot dot-blue"></span>DeepSeek</div>
-          <div class="provider-chip"><span class="dot dot-red"></span>豆包 (Seed)</div>
           <div class="provider-chip"><span class="dot dot-orange"></span>DashScope (Qwen)</div>
           <div class="provider-chip"><span class="dot dot-green"></span>智谱 AI (GLM)</div>
           <div class="provider-chip"><span class="dot dot-purple"></span>Kimi / Moonshot</div>
@@ -993,7 +994,8 @@
           <div class="provider-chip"><span class="dot dot-blue"></span>Together AI</div>
           <div class="provider-chip"><span class="dot dot-orange"></span>Groq</div>
           <div class="provider-chip"><span class="dot dot-cyan"></span>Ollama (Local)</div>
-          <div class="provider-chip"><span class="dot dot-red"></span>Custom API</div>
+          <div class="provider-chip"><span class="dot dot-purple"></span>vLLM / Azure</div>
+          <div class="provider-chip"><span class="dot dot-red"></span>Custom OpenAI / Anthropic</div>
         </div>
       </div>
     </div>
@@ -1005,7 +1007,7 @@
       <div class="section-header">
         <div class="section-tag">Channels</div>
         <h2 class="section-title">全平台通讯接入</h2>
-        <p class="section-desc">长连接模式无需公网 IP，无需回调地址，启动即用</p>
+        <p class="section-desc">长连接模式无需公网 IP，无需回调地址，启动即用；WebChat 与终端 TUI 开箱即用</p>
       </div>
       <div class="channels-grid">
         <div class="channel-card">
@@ -1030,7 +1032,19 @@
           <div class="channel-icon">&#x1f4bc;</div>
           <h3>企业微信</h3>
           <span class="channel-mode mode-http">HTTP 回调</span>
-          <p>API 模式，需公网可访问地址</p>
+          <p>自建应用，需公网可访问地址，签名与 AES 解密校验</p>
+        </div>
+        <div class="channel-card">
+          <div class="channel-icon">&#x1f5a5;&#xfe0f;</div>
+          <h3>WebChat</h3>
+          <span class="channel-mode mode-ws">WebSocket</span>
+          <p>内置聊天界面 + 控制台，支持流式输出与会话管理</p>
+        </div>
+        <div class="channel-card">
+          <div class="channel-icon">&#x2328;&#xfe0f;</div>
+          <h3>终端 TUI</h3>
+          <span class="channel-mode mode-ws">本地终端</span>
+          <p>直接运行 <code>mozi</code> 进入，支持历史、中断与新会话</p>
         </div>
       </div>
     </div>
@@ -1041,8 +1055,8 @@
     <div class="container">
       <div class="section-header">
         <div class="section-tag">Quick Start</div>
-        <h2 class="section-title">三步启动</h2>
-        <p class="section-desc">从安装到对话，只需几条命令</p>
+        <h2 class="section-title">四条命令启动</h2>
+        <p class="section-desc">从安装到对话，WebChat / 通讯平台 / 终端 TUI 三种入口任选</p>
       </div>
       <div class="quickstart-tabs">
         <button class="qs-tab active" onclick="switchTab('npm')">npm</button>
@@ -1061,15 +1075,21 @@
             <div><span class="comment"># 2. Configure (interactive wizard)</span></div>
             <div><span class="prompt">$ </span><span class="cmd">mozi onboard</span></div>
             <br />
-            <div><span class="comment"># 3. Start</span></div>
+            <div><span class="comment"># 3. 先确认配置能通过</span></div>
+            <div><span class="prompt">$ </span><span class="cmd">mozi check</span></div>
+            <br />
+            <div><span class="comment"># 4. 启动</span></div>
             <br />
             <div><span class="comment"># 仅 WebChat（无需配置 QQ/飞书/钉钉）</span></div>
-            <div><span class="prompt">$ </span><span class="cmd">mozi start <span class="flag">--web-only</span></span></div>
+            <div><span class="prompt">$ </span><span class="cmd">mozi web <span class="flag">--web-only</span></span></div>
             <br />
-            <div><span class="comment"># 完整服务（WebChat + QQ + 飞书 + 钉钉）</span></div>
+            <div><span class="comment"># 完整服务（WebChat + 飞书 + 钉钉 + QQ + 企微）</span></div>
             <div><span class="prompt">$ </span><span class="cmd">mozi start</span></div>
             <br />
-            <div><span class="comment"># Open http://localhost:3000 and start chatting!</span></div>
+            <div><span class="comment"># 或者直接在终端里聊</span></div>
+            <div><span class="prompt">$ </span><span class="cmd">mozi</span></div>
+            <br />
+            <div><span class="comment"># 聊天界面 http://localhost:3000 · 控制台 http://localhost:3000/control</span></div>
           </div>
         </div>
       </div>
@@ -1089,13 +1109,16 @@
             <br />
             <div><span class="comment"># 3. Start</span></div>
             <br />
-            <div><span class="comment"># 仅 WebChat（无需配置 QQ/飞书/钉钉）</span></div>
-            <div><span class="prompt">$ </span><span class="cmd">npm start <span class="flag">--</span> start <span class="flag">--web-only</span></span></div>
+            <div><span class="comment"># 仅 WebChat</span></div>
+            <div><span class="prompt">$ </span><span class="cmd">node dist/cli/index.js web <span class="flag">--web-only</span></span></div>
             <br />
-            <div><span class="comment"># 完整服务（WebChat + QQ + 飞书 + 钉钉）</span></div>
-            <div><span class="prompt">$ </span><span class="cmd">npm start <span class="flag">--</span> start</span></div>
+            <div><span class="comment"># 完整服务</span></div>
+            <div><span class="prompt">$ </span><span class="cmd">node dist/cli/index.js start</span></div>
             <br />
-            <div><span class="comment"># Open http://localhost:3000 and start chatting!</span></div>
+            <div><span class="comment"># 本地打包后离线安装验证</span></div>
+            <div><span class="prompt">$ </span><span class="cmd">npm pack <span class="flag">&amp;&amp;</span> npm install <span class="flag">-g</span> ./mozi-bot-2.0.0.tgz</span></div>
+            <br />
+            <div><span class="comment"># 聊天界面 http://localhost:3000 · 控制台 http://localhost:3000/control</span></div>
           </div>
         </div>
       </div>
@@ -1107,8 +1130,8 @@
     <div class="container">
       <div class="section-header">
         <div class="section-tag">Built-in Tools</div>
-        <h2 class="section-title">25 个内置工具</h2>
-        <p class="section-desc">原生 Function Calling，涵盖文件操作、命令执行、网络、定时任务等</p>
+        <h2 class="section-title">20 个内置工具</h2>
+        <p class="section-desc">原生 Function Calling，涵盖文件操作、命令执行、网页抓取、浏览器自动化与长期记忆</p>
       </div>
       <div class="tools-grid">
         <div class="tool-item">
@@ -1157,15 +1180,27 @@
         </div>
         <div class="tool-item">
           <span class="tool-icon">&#9200;</span>
-          <div class="tool-info"><h4>cron_*</h4><p>定时任务管理</p></div>
+          <div class="tool-info"><h4>cron_*</h4><p>定时任务管理（按需启用）</p></div>
         </div>
         <div class="tool-item">
-          <span class="tool-icon">&#129302;</span>
-          <div class="tool-info"><h4>subagent</h4><p>子 Agent 任务分解</p></div>
+          <span class="tool-icon">&#128193;</span>
+          <div class="tool-info"><h4>list_directory</h4><p>列出目录内容</p></div>
         </div>
         <div class="tool-item">
-          <span class="tool-icon">&#128268;</span>
-          <div class="tool-info"><h4>plugin_*</h4><p>插件扩展工具</p></div>
+          <span class="tool-icon">&#129513;</span>
+          <div class="tool-info"><h4>apply_patch</h4><p>应用 diff 补丁</p></div>
+        </div>
+        <div class="tool-item">
+          <span class="tool-icon">&#9881;&#65039;</span>
+          <div class="tool-info"><h4>process</h4><p>管理后台进程</p></div>
+        </div>
+        <div class="tool-item">
+          <span class="tool-icon">&#129518;</span>
+          <div class="tool-info"><h4>calculator</h4><p>数学计算</p></div>
+        </div>
+        <div class="tool-item">
+          <span class="tool-icon">&#9203;</span>
+          <div class="tool-info"><h4>delay</h4><p>延时等待</p></div>
         </div>
       </div>
     </div>
@@ -1196,8 +1231,18 @@
             </tr>
             <tr>
               <td>代码量</td>
-              <td class="highlight-cell">~16,000 行</td>
+              <td class="highlight-cell">~19,600 行 / 96 文件</td>
               <td>~516,000 行</td>
+            </tr>
+            <tr>
+              <td>崩溃恢复</td>
+              <td class="highlight-cell">Durable Execution（追加日志）</td>
+              <td>会话持久化</td>
+            </tr>
+            <tr>
+              <td>模型提供商</td>
+              <td class="highlight-cell">16 个（含自定义端点）</td>
+              <td>数十个</td>
             </tr>
             <tr>
               <td>国产通讯</td>
@@ -1238,6 +1283,7 @@
               <span class="arch-node input">QQ (WebSocket)</span>
               <span class="arch-node input">企微 (HTTP)</span>
               <span class="arch-node input">WebChat</span>
+              <span class="arch-node input">终端 TUI</span>
             </div>
           </div>
           <div class="arch-arrow">&darr;</div>
@@ -1257,7 +1303,7 @@
               <span class="arch-node core">Skills 技能</span>
               <span class="arch-node core">记忆系统</span>
               <span class="arch-node core">定时任务</span>
-              <span class="arch-node core">插件系统</span>
+              <span class="arch-node core">Durable 执行</span>
             </div>
           </div>
           <div class="arch-arrow">&darr;</div>
@@ -1265,7 +1311,6 @@
             <div class="arch-layer-title">Providers &mdash; AI 模型</div>
             <div class="arch-nodes">
               <span class="arch-node provider">DeepSeek</span>
-              <span class="arch-node provider">豆包</span>
               <span class="arch-node provider">Qwen</span>
               <span class="arch-node provider">智谱AI</span>
               <span class="arch-node provider">Kimi</span>
@@ -1275,7 +1320,7 @@
           </div>
           <div class="arch-arrow">&darr;</div>
           <div class="arch-layer">
-            <div class="arch-layer-title">Tools &mdash; 25 个内置工具</div>
+            <div class="arch-layer-title">Tools &mdash; 20 个内置工具</div>
             <div class="arch-nodes">
               <span class="arch-node tool">文件操作</span>
               <span class="arch-node tool">Bash 执行</span>
@@ -1283,7 +1328,7 @@
               <span class="arch-node tool">浏览器自动化</span>
               <span class="arch-node tool">记忆系统</span>
               <span class="arch-node tool">定时任务</span>
-              <span class="arch-node tool">子 Agent</span>
+              <span class="arch-node tool">图像分析</span>
             </div>
           </div>
         </div>

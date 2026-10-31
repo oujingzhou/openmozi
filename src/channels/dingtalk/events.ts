@@ -5,6 +5,7 @@
 import type { DingtalkConfig, InboundMessageContext, ChatType } from "../../types/index.js";
 import { getChildLogger } from "../../utils/logger.js";
 import { computeHmacSha256 } from "../../utils/index.js";
+import { isFreshTimestamp, safeEqual } from "../common/signature.js";
 
 const logger = getChildLogger("dingtalk-events");
 
@@ -90,17 +91,20 @@ export class DingtalkEventHandler {
     this.config = config;
   }
 
-  /** 验证回调签名 */
+  /** 验证回调签名：未配置密钥失败关闭、校验时间窗、常量时间比较 */
   verifySignature(timestamp: string, sign: string): boolean {
     if (!this.config.appSecret) {
-      logger.warn("No app secret configured, skipping signature verification");
-      return true;
+      logger.error("No app secret configured; rejecting callback");
+      return false;
+    }
+    if (!isFreshTimestamp(timestamp)) {
+      logger.warn({ timestamp }, "DingTalk callback timestamp outside allowed window");
+      return false;
     }
 
     const stringToSign = timestamp + "\n" + this.config.appSecret;
     const expectedSign = computeHmacSha256(this.config.appSecret, stringToSign);
-
-    return sign === expectedSign;
+    return safeEqual(expectedSign, sign);
   }
 
   /** 检查消息是否已处理 (去重) */

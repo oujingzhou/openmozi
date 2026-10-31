@@ -131,6 +131,34 @@ describe("config save", () => {
   });
 });
 
+describe("config save round-trip safety", () => {
+  it("keeps the file parseable when a value contains a newline", async () => {
+    const config = loadConfig();
+    const result = await saveConfig(
+      { agent: { systemPrompt: "你是助手。\n规则1: 简洁\n规则2: 诚实" } } as ConfigSaveParams,
+      config
+    );
+    expect(result.success).toBe(true);
+
+    // 之前手写序列化器不转义换行，写出的文件下次启动直接解析失败
+    expect(() => loadConfig()).not.toThrow();
+    const reloaded = loadConfig();
+    expect(reloaded.agent.systemPrompt).toBe("你是助手。\n规则1: 简洁\n规则2: 诚实");
+  });
+
+  it("refuses to overwrite a config file it cannot parse", async () => {
+    // 先加载一份正常配置，拿到 current
+    const config = loadConfig();
+    // 随后把文件破坏，模拟"用户手工编辑出错"的场景
+    fs.writeFileSync(configPath, "{ this is not json5", "utf-8");
+
+    const result = await saveConfig({ memory: { enabled: false } } as ConfigSaveParams, config);
+
+    expect(result.success).toBe(false);
+    expect(fs.readFileSync(configPath, "utf-8")).toBe("{ this is not json5");
+  });
+});
+
 describe("config info", () => {
   it("masks secrets but exposes provider models", () => {
     const config = loadConfig();

@@ -48,10 +48,10 @@ OpenMozi 是一个轻量级的 AI 助手框架，专注于国产生态。基于 
 
 ## 核心特性
 
-- **多模型支持** — 基于 pi-ai 统一调用层，支持 DeepSeek、豆包、DashScope (Qwen)、智谱AI、Kimi、阶跃星辰、MiniMax，以及 OpenAI/Anthropic/OpenRouter/Groq 等 25+ 提供商
+- **多模型支持** — 基于 pi-ai 统一调用层，支持 DeepSeek、DashScope (Qwen)、智谱AI、Kimi、阶跃星辰、MiniMax，以及 OpenAI/Anthropic/OpenRouter/Groq 等 25+ 提供商
 - **多平台通道** — QQ、飞书、钉钉、企业微信，统一的消息处理接口
 - **Function Calling** — 基于 pi-coding-agent 的 Agent 运行时，原生支持工具调用循环
-- **25 内置工具** — 文件读写、Bash 执行、代码搜索、网页获取、图像分析、浏览器自动化、记忆系统、定时任务等
+- **20 内置工具** — 文件读写、Bash 执行、代码搜索、网页获取、图像分析、浏览器自动化、记忆系统等
 - **Skills 技能系统** — 通过 SKILL.md 文件扩展 Agent 能力，支持自定义行为和专业知识注入
 - **记忆系统** — 跨会话长期记忆，自动记住用户偏好和重要信息
 - **定时任务 (Cron)** — 支持一次性、周期性、Cron 表达式三种调度方式，支持 Agent 执行和主动消息投递
@@ -105,7 +105,7 @@ mozi onboard
 ```
 
 向导会引导你完成以下配置：
-- **国产模型** — DeepSeek、豆包、智谱AI、DashScope、Kimi、阶跃星辰、MiniMax、ModelScope
+- **国产模型** — DeepSeek、智谱AI、DashScope、Kimi、阶跃星辰、MiniMax、ModelScope
 - **自定义 OpenAI 兼容接口** — 支持任意 OpenAI API 格式的服务（如 vLLM、Ollama）
 - **自定义 Anthropic 兼容接口** — 支持任意 Claude API 格式的服务
 - **通讯平台** — QQ、飞书、钉钉、企业微信
@@ -152,7 +152,6 @@ mozi web --no-open
 | 提供商 | 环境变量 | 说明 |
 |--------|----------|------|
 | DeepSeek | `DEEPSEEK_API_KEY` | 推理能力强、性价比高 |
-| 豆包 | `DOUBAO_API_KEY` | 字节跳动火山引擎，Seed 深度思考系列，256k 上下文 |
 | DashScope | `DASHSCOPE_API_KEY` | 阿里云灵积/百炼，通义千问商业版，稳定高并发 |
 | 智谱 AI | `ZHIPU_API_KEY` | GLM-Z1/GLM-4/GLM-5 系列，清华技术团队，有免费额度 |
 | ModelScope | `MODELSCOPE_API_KEY` | 阿里云魔搭社区，Qwen 开源版，有免费额度 |
@@ -669,8 +668,9 @@ export default definePlugin(
 | | `calculator` | 数学计算 |
 | | `delay` | 延时等待 |
 | 记忆 | `memory_store` | 存储长期记忆 |
-| | `memory_query` | 查询相关记忆 |
+| | `memory_search` | 查询相关记忆 |
 | | `memory_list` | 列出所有记忆 |
+| | `memory_delete` | 删除记忆 |
 | 定时任务 | `cron_list` | 列出所有定时任务 |
 | | `cron_add` | 添加定时任务 |
 | | `cron_remove` | 删除定时任务 |
@@ -876,12 +876,11 @@ flowchart TB
     subgraph External["🔗 外部依赖"]
         subgraph Providers["模型提供商"]
             P1["DeepSeek"]
-            P2["豆包"]
-            P3["DashScope"]
-            P4["智谱AI"]
-            P5["Kimi"]
-            P6["OpenAI"]
-            P7["Anthropic"]
+            P2["DashScope"]
+            P3["智谱AI"]
+            P4["Kimi"]
+            P5["OpenAI"]
+            P6["Anthropic"]
         end
 
         subgraph Tools["工具系统"]

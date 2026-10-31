@@ -5,11 +5,12 @@
  * JSON 文件存储，支持原子写入和备份
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, copyFileSync } from "fs";
-import { join, dirname } from "path";
+import { existsSync, readFileSync } from "fs";
+import { join } from "path";
 import { homedir } from "os";
 import json5 from "json5";
 import type { CronStoreFile, CronJob } from "./types.js";
+import { atomicWriteJson } from "../storage/index.js";
 
 /** 默认 Cron 数据目录 */
 const CRON_DATA_DIR = join(homedir(), ".mozi", "cron");
@@ -44,24 +45,7 @@ export function loadCronStore(storePath: string = DEFAULT_CRON_STORE_PATH): Cron
  * 保存存储文件 (原子写入)
  */
 export function saveCronStore(store: CronStoreFile, storePath: string = DEFAULT_CRON_STORE_PATH): void {
-  const dir = dirname(storePath);
-  mkdirSync(dir, { recursive: true });
-
-  const content = JSON.stringify(store, null, 2);
-  const tmpPath = `${storePath}.${process.pid}.${Date.now()}.tmp`;
-
-  // 写入临时文件
-  writeFileSync(tmpPath, content, "utf-8");
-
-  // 原子重命名
-  renameSync(tmpPath, storePath);
-
-  // 创建备份 (best-effort)
-  try {
-    copyFileSync(storePath, `${storePath}.bak`);
-  } catch {
-    // 忽略备份失败
-  }
+  atomicWriteJson(storePath, store, { backup: true });
 }
 
 /**
