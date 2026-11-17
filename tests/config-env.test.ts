@@ -201,7 +201,7 @@ describe("config env expansion", () => {
     const config: MoziConfig = {
       providers: { deepseek: { apiKey: "sk-real" } },
       channels: { feishu: { appId: "cli_x", appSecret: "$MOZI_MISSING_SECRET" } },
-      agent: { defaultProvider: "deepseek", defaultModel: "deepseek-chat" },
+      agent: { defaultProvider: "deepseek", defaultModel: "deepseek-flash" },
       server: { port: 3000 },
       logging: { level: "info" },
     };

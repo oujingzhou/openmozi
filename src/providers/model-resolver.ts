@@ -26,53 +26,129 @@ const CHINA_PROVIDER_BASE_URLS: Record<string, string> = {
   deepseek: "https://api.deepseek.com/v1",
   kimi: "https://api.moonshot.cn/v1",
   stepfun: "https://api.stepfun.com/v1",
-  minimax: "https://api.minimax.chat/v1/text/chatcompletion_v2",
+  // MiniMax 原生 /text/chatcompletion_v2 已废弃：pi-ai 会再拼 /chat/completions，必须用 OpenAI 兼容根路径
+  minimax: "https://api.minimax.cn/v1",
   modelscope: "https://api-inference.modelscope.cn/v1",
   dashscope: "https://dashscope.aliyuncs.com/compatible-mode/v1",
   zhipu: "https://open.bigmodel.cn/api/paas/v4",
 };
 
-/** 中国 provider 的默认模型定义 */
+/**
+ * 中国 provider 的默认模型定义
+ *
+ * 规格取自各家官方文档（2026-11 核对）：
+ * - contextWindow = 上下文窗口；maxTokens = 单次请求的输出上限
+ * - supportsVision 指该「模型 ID + 该端点」能否直接吃图片
+ */
 const CHINA_PROVIDER_MODELS: Record<string, ModelDefinition[]> = {
   deepseek: [
-    { id: "deepseek-chat", name: "DeepSeek Chat", provider: "deepseek", api: "openai-compatible", contextWindow: 64000, maxTokens: 8192, supportsVision: false, supportsReasoning: false },
-    { id: "deepseek-reasoner", name: "DeepSeek Reasoner (R1)", provider: "deepseek", api: "openai-compatible", contextWindow: 64000, maxTokens: 8192, supportsVision: false, supportsReasoning: true },
+    // V4.1-Flash-1017：1M 上下文 / 384K 输出 / 原生多模态；thinking 默认开启，reasoning_effort 取 none|low|high|max
+    { id: "deepseek-flash", name: "DeepSeek V4.1 Flash", provider: "deepseek", api: "openai-compatible", contextWindow: 1000000, maxTokens: 393216, supportsVision: true, supportsReasoning: true },
+    // V4-Pro-0813：旗舰推理，不支持视觉
+    { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro", provider: "deepseek", api: "openai-compatible", contextWindow: 1000000, maxTokens: 393216, supportsVision: false, supportsReasoning: true },
   ],
   kimi: [
-    { id: "kimi-k2.5", name: "Kimi K2.5", provider: "kimi", api: "openai-compatible", contextWindow: 128000, maxTokens: 65536, supportsVision: true, supportsReasoning: true },
-    { id: "kimi-latest", name: "Kimi Latest", provider: "kimi", api: "openai-compatible", contextWindow: 128000, maxTokens: 65536, supportsVision: true, supportsReasoning: false },
-    { id: "moonshot-v1-128k", name: "Moonshot V1 128K", provider: "kimi", api: "openai-compatible", contextWindow: 128000, maxTokens: 65536, supportsVision: false, supportsReasoning: false },
+    // K3 系列：1M 上下文，始终思考，reasoning_effort 取 low|high|max，默认 131072 输出
+    { id: "kimi-k3.1-pro", name: "Kimi K3.1 Pro", provider: "kimi", api: "openai-compatible", contextWindow: 1048576, maxTokens: 131072, supportsVision: true, supportsReasoning: true },
+    { id: "kimi-k3.1-pro-highspeed", name: "Kimi K3.1 Pro Highspeed", provider: "kimi", api: "openai-compatible", contextWindow: 1048576, maxTokens: 131072, supportsVision: true, supportsReasoning: true },
+    { id: "kimi-k3", name: "Kimi K3", provider: "kimi", api: "openai-compatible", contextWindow: 1048576, maxTokens: 131072, supportsVision: true, supportsReasoning: true },
   ],
   stepfun: [
-    { id: "step-2-mini", name: "Step 2 Mini", provider: "stepfun", api: "openai-compatible", contextWindow: 32000, maxTokens: 8192, supportsVision: false, supportsReasoning: true },
-    { id: "step-1-128k", name: "Step 1 128K", provider: "stepfun", api: "openai-compatible", contextWindow: 128000, maxTokens: 65536, supportsVision: false, supportsReasoning: false },
+    // Step 5 Preview：旗舰基模，1M 上下文 / 64K 输出，文本+图片+视频
+    { id: "step-5-preview", name: "Step 5 Preview", provider: "stepfun", api: "openai-compatible", contextWindow: 1000000, maxTokens: 65536, supportsVision: true, supportsReasoning: true },
+    // Step 3.7 Flash：多模态推理，256K 上下文
+    { id: "step-3.7-flash", name: "Step 3.7 Flash", provider: "stepfun", api: "openai-compatible", contextWindow: 262144, maxTokens: 262144, supportsVision: true, supportsReasoning: true },
+    { id: "step-3.5-flash", name: "Step 3.5 Flash", provider: "stepfun", api: "openai-compatible", contextWindow: 262144, maxTokens: 65536, supportsVision: false, supportsReasoning: true },
+    { id: "step-1o-turbo-vision", name: "Step-1o Turbo Vision", provider: "stepfun", api: "openai-compatible", contextWindow: 32768, maxTokens: 8192, supportsVision: true, supportsReasoning: false },
   ],
   minimax: [
-    { id: "MiniMax-M2.1", name: "MiniMax M2.1", provider: "minimax", api: "openai-compatible", contextWindow: 1000000, maxTokens: 65536, supportsVision: false, supportsReasoning: true },
-    { id: "MiniMax-M1", name: "MiniMax M1", provider: "minimax", api: "openai-compatible", contextWindow: 1000000, maxTokens: 65536, supportsVision: false, supportsReasoning: true },
-    { id: "abab6.5s-chat", name: "ABAB 6.5s Chat", provider: "minimax", api: "openai-compatible", contextWindow: 245760, maxTokens: 8192, supportsVision: false, supportsReasoning: false },
+    // M3.1-Flash：1M 上下文，输出上限 512K，思考不可关闭，reasoning_effort 取 low..max
+    { id: "MiniMax-M3.1-Flash", name: "MiniMax M3.1 Flash", provider: "minimax", api: "openai-compatible", contextWindow: 1000000, maxTokens: 524288, supportsVision: true, supportsReasoning: true },
+    { id: "MiniMax-M3", name: "MiniMax M3", provider: "minimax", api: "openai-compatible", contextWindow: 1000000, maxTokens: 524288, supportsVision: true, supportsReasoning: true },
   ],
   modelscope: [
-    { id: "Qwen/Qwen2.5-72B-Instruct", name: "Qwen 2.5 72B", provider: "modelscope", api: "openai-compatible", contextWindow: 131072, maxTokens: 8192, supportsVision: false, supportsReasoning: false },
-    { id: "deepseek-ai/DeepSeek-R1", name: "DeepSeek R1 (ModelScope)", provider: "modelscope", api: "openai-compatible", contextWindow: 65536, maxTokens: 8192, supportsVision: false, supportsReasoning: true },
-    { id: "deepseek-ai/DeepSeek-V3", name: "DeepSeek V3 (ModelScope)", provider: "modelscope", api: "openai-compatible", contextWindow: 65536, maxTokens: 8192, supportsVision: false, supportsReasoning: false },
+    // 取自 API-Inference /v1/models 现行列表。免费推理未公开逐模型输出上限，统一取保守值。
+    { id: "deepseek-ai/DeepSeek-V4.1-Flash-1017", name: "DeepSeek V4.1 Flash (ModelScope)", provider: "modelscope", api: "openai-compatible", contextWindow: 1000000, maxTokens: 32768, supportsVision: false, supportsReasoning: true },
+    { id: "Qwen/Qwen3.5-397B-A17B", name: "Qwen3.5 397B (ModelScope)", provider: "modelscope", api: "openai-compatible", contextWindow: 262144, maxTokens: 32768, supportsVision: true, supportsReasoning: true },
+    { id: "moonshotai/Kimi-K3.1-Pro", name: "Kimi K3.1 Pro (ModelScope)", provider: "modelscope", api: "openai-compatible", contextWindow: 1048576, maxTokens: 32768, supportsVision: true, supportsReasoning: true },
+    { id: "MiniMax/MiniMax-M3", name: "MiniMax M3 (ModelScope)", provider: "modelscope", api: "openai-compatible", contextWindow: 1000000, maxTokens: 32768, supportsVision: true, supportsReasoning: true },
+    { id: "ZhipuAI/GLM-5.2", name: "GLM-5.2 (ModelScope)", provider: "modelscope", api: "openai-compatible", contextWindow: 1000000, maxTokens: 32768, supportsVision: false, supportsReasoning: true },
   ],
   dashscope: [
-    { id: "qwen3-235b-a22b", name: "Qwen3 235B (MoE)", provider: "dashscope", api: "openai-compatible", contextWindow: 131072, maxTokens: 8192, supportsVision: false, supportsReasoning: true },
-    { id: "qwen3-32b", name: "Qwen3 32B", provider: "dashscope", api: "openai-compatible", contextWindow: 131072, maxTokens: 8192, supportsVision: false, supportsReasoning: true },
-    { id: "qwen-max", name: "Qwen Max", provider: "dashscope", api: "openai-compatible", contextWindow: 32768, maxTokens: 8192, supportsVision: false, supportsReasoning: false },
-    { id: "qwen-plus", name: "Qwen Plus", provider: "dashscope", api: "openai-compatible", contextWindow: 131072, maxTokens: 8192, supportsVision: false, supportsReasoning: false },
-    { id: "qwq-plus", name: "QwQ Plus", provider: "dashscope", api: "openai-compatible", contextWindow: 131072, maxTokens: 16384, supportsVision: false, supportsReasoning: true },
-    { id: "deepseek-r1", name: "DeepSeek R1 (DashScope)", provider: "dashscope", api: "openai-compatible", contextWindow: 65536, maxTokens: 8192, supportsVision: false, supportsReasoning: true },
+    // qwen4-max：1M 上下文，思考模式输出上限 262144，文本/图片/视频
+    { id: "qwen4-max", name: "Qwen4 Max", provider: "dashscope", api: "openai-compatible", contextWindow: 1000000, maxTokens: 262144, supportsVision: true, supportsReasoning: true },
+    { id: "qwen3.7-plus", name: "Qwen3.7 Plus", provider: "dashscope", api: "openai-compatible", contextWindow: 1000000, maxTokens: 131072, supportsVision: true, supportsReasoning: true },
+    { id: "qwen3.8-flash", name: "Qwen3.8 Flash", provider: "dashscope", api: "openai-compatible", contextWindow: 1000000, maxTokens: 131072, supportsVision: true, supportsReasoning: true },
   ],
   zhipu: [
-    { id: "glm-z1-plus", name: "GLM-Z1 Plus", provider: "zhipu", api: "openai-compatible", contextWindow: 128000, maxTokens: 8192, supportsVision: false, supportsReasoning: true },
-    { id: "glm-z1-flash", name: "GLM-Z1 Flash (Free)", provider: "zhipu", api: "openai-compatible", contextWindow: 128000, maxTokens: 8192, supportsVision: false, supportsReasoning: true },
-    { id: "glm-4.7", name: "GLM-4.7", provider: "zhipu", api: "openai-compatible", contextWindow: 128000, maxTokens: 8192, supportsVision: false, supportsReasoning: false },
-    { id: "glm-4-plus", name: "GLM-4 Plus", provider: "zhipu", api: "openai-compatible", contextWindow: 128000, maxTokens: 4096, supportsVision: false, supportsReasoning: false },
-    { id: "glm-4-flash", name: "GLM-4 Flash (Free)", provider: "zhipu", api: "openai-compatible", contextWindow: 128000, maxTokens: 4096, supportsVision: false, supportsReasoning: false },
-    { id: "glm-4v-plus", name: "GLM-4V Plus", provider: "zhipu", api: "openai-compatible", contextWindow: 8192, maxTokens: 1024, supportsVision: true, supportsReasoning: false },
+    // GLM-5.3：旗舰，纯文本，1M 上下文 / 128K 输出，思考强制开启（reasoning_effort 取 low|high|max）
+    { id: "glm-5.3", name: "GLM-5.3", provider: "zhipu", api: "openai-compatible", contextWindow: 1000000, maxTokens: 131072, supportsVision: false, supportsReasoning: true },
+    // GLM-5.3-Flash：原生多模态，1M 上下文 / 128K 输出
+    { id: "glm-5.3-flash", name: "GLM-5.3 Flash", provider: "zhipu", api: "openai-compatible", contextWindow: 1000000, maxTokens: 131072, supportsVision: true, supportsReasoning: true },
+    { id: "glm-4.7", name: "GLM-4.7", provider: "zhipu", api: "openai-compatible", contextWindow: 204800, maxTokens: 131072, supportsVision: false, supportsReasoning: true },
+    { id: "glm-4.7-flash", name: "GLM-4.7 Flash (Free)", provider: "zhipu", api: "openai-compatible", contextWindow: 204800, maxTokens: 131072, supportsVision: false, supportsReasoning: true },
   ],
+};
+
+/**
+ * 中国 provider 的 OpenAI 兼容层差异。
+ *
+ * pi-ai 只按 baseUrl 自动探测少数几家（deepseek.com / api.z.ai …），其余会默认发出
+ * `store`、`developer` 角色和 `max_completion_tokens`，这些国产端点大多不认（Kimi 文档
+ * 明确 role 仅支持 system/user/assistant/tool）。这里逐家钉死，避免 400。
+ * reasoningEffortMap 把 pi-ai 的档位收敛到各家文档里的合法取值；额外处理 "off"
+ * （会话标题生成会显式传 off，pi-ai 类型里没有该档位，不映射就会原样发出被 400 拒绝）。
+ */
+const CHINA_PROVIDER_COMPAT: Record<string, Record<string, unknown>> = {
+  deepseek: {
+    supportsStore: false,
+    supportsDeveloperRole: false,
+    maxTokensField: "max_tokens",
+    // 文档：none|low|high|max，minimal→low、medium/xhigh→high；off 可直接关闭思考
+    reasoningEffortMap: { off: "none", minimal: "low", low: "low", medium: "high", high: "high", xhigh: "high" },
+  },
+  kimi: {
+    supportsStore: false,
+    supportsDeveloperRole: false,
+    maxTokensField: "max_completion_tokens",
+    // K3 始终思考：low|high|max（默认 max），thinking 不可关闭，off 只能压到最低档
+    reasoningEffortMap: { off: "low", minimal: "low", low: "low", medium: "high", high: "high", xhigh: "max" },
+  },
+  stepfun: {
+    supportsStore: false,
+    supportsDeveloperRole: false,
+    maxTokensField: "max_tokens",
+    reasoningEffortMap: { off: "low", minimal: "low", low: "low", medium: "medium", high: "high", xhigh: "high" },
+  },
+  minimax: {
+    supportsStore: false,
+    supportsDeveloperRole: false,
+    maxTokensField: "max_completion_tokens",
+    reasoningEffortMap: { off: "low", minimal: "low", low: "low", medium: "medium", high: "high", xhigh: "xhigh" },
+  },
+  modelscope: {
+    supportsStore: false,
+    supportsDeveloperRole: false,
+    maxTokensField: "max_tokens",
+    // 免费聚合端点未公开逐模型的 reasoning_effort 取值，宁可不发也不要发错：
+    // 关掉该字段后思考强度由各模型自身的默认值决定。
+    supportsReasoningEffort: false,
+  },
+  dashscope: {
+    supportsStore: false,
+    supportsDeveloperRole: false,
+    maxTokensField: "max_tokens",
+    // qwen4-max 文档：low|high|xhigh，minimal→low、medium→high、max→xhigh
+    // qwen4-max 文档：low|high|xhigh，minimal→low、medium→high、max→xhigh
+    reasoningEffortMap: { off: "low", minimal: "low", low: "low", medium: "high", high: "high", xhigh: "xhigh" },
+  },
+  zhipu: {
+    supportsStore: false,
+    supportsDeveloperRole: false,
+    maxTokensField: "max_tokens",
+    // GLM-5.3 文档：low|high|max，思考强制开启
+    reasoningEffortMap: { off: "low", minimal: "low", low: "low", medium: "high", high: "high", xhigh: "max" },
+  },
 };
 
 /** 预设 provider 配置 (pi-ai 不内置但常用的) */
@@ -172,6 +248,7 @@ function registerChinaProvider(
       baseUrl,
       providerId,
       config.headers,
+      CHINA_PROVIDER_COMPAT[providerId],
     );
     modelRegistry.set(`${providerId}:${modelDef.id}`, { model, providerId: providerId as ProviderId });
   }
@@ -343,7 +420,14 @@ export function resolveModel(providerId: ProviderId, modelId: string): Model<Api
         supportsReasoning: false,
       };
       const headers = { ...preset?.headers, ...config.headers };
-      const model = buildOpenAIModel(modelId, dynamicDef, baseUrl, providerId, Object.keys(headers).length > 0 ? headers : undefined);
+      const model = buildOpenAIModel(
+        modelId,
+        dynamicDef,
+        baseUrl,
+        providerId,
+        Object.keys(headers).length > 0 ? headers : undefined,
+        CHINA_PROVIDER_COMPAT[providerId],
+      );
 
       // 缓存动态解析的模型
       modelRegistry.set(key, { model, providerId });

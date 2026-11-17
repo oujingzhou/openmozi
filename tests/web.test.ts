@@ -26,7 +26,7 @@ import type { MoziConfig } from "../src/types/index.js";
 const baseConfig: MoziConfig = {
   providers: {},
   channels: {},
-  agent: { defaultProvider: "deepseek", defaultModel: "deepseek-chat" },
+  agent: { defaultProvider: "deepseek", defaultModel: "deepseek-flash" },
   server: { port: 3000 },
   logging: { level: "info" },
 };

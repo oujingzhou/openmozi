@@ -79,7 +79,7 @@ describe("config", () => {
       expect(result.providers).toEqual({});
       expect(result.channels).toEqual({});
       expect(result.agent).toBeDefined();
-      expect(result.agent?.defaultModel).toBe("deepseek-chat");
+      expect(result.agent?.defaultModel).toBe("deepseek-flash");
       expect(result.agent?.defaultProvider).toBe("deepseek");
       expect(result.agent?.maxTokens).toBe(4096);
       expect(result.server?.port).toBe(3000);

@@ -149,15 +149,17 @@ mozi web --no-open
 
 ### 国产模型
 
-| 提供商 | 环境变量 | 说明 |
+| 提供商 | 环境变量 | 内置模型（2026-11 核对） |
 |--------|----------|------|
-| DeepSeek | `DEEPSEEK_API_KEY` | 推理能力强、性价比高 |
-| DashScope | `DASHSCOPE_API_KEY` | 阿里云灵积/百炼，通义千问商业版，稳定高并发 |
-| 智谱 AI | `ZHIPU_API_KEY` | GLM-Z1/GLM-4/GLM-5 系列，清华技术团队，有免费额度 |
-| ModelScope | `MODELSCOPE_API_KEY` | 阿里云魔搭社区，Qwen 开源版，有免费额度 |
-| Kimi | `KIMI_API_KEY` | Kimi K2.5/Moonshot 系列，长上下文支持 |
-| 阶跃星辰 | `STEPFUN_API_KEY` | Step-2/Step-1 系列，推理与多模态 |
-| MiniMax | `MINIMAX_API_KEY` | MiniMax M2.5/M2.1 系列，推理能力强 |
+| DeepSeek | `DEEPSEEK_API_KEY` | `deepseek-flash`（V4.1 Flash，1M 上下文，原生多模态）、`deepseek-v4-pro` |
+| DashScope | `DASHSCOPE_API_KEY` | `qwen4-max`、`qwen3.7-plus`、`qwen3.8-flash`（均 1M 上下文） |
+| 智谱 AI | `ZHIPU_API_KEY` | `glm-5.3`、`glm-5.3-flash`（多模态）、`glm-4.7`、`glm-4.7-flash`（免费） |
+| ModelScope | `MODELSCOPE_API_KEY` | `DeepSeek-V4.1-Flash-1017`、`Qwen3.5-397B-A17B`、`Kimi-K3.1-Pro`、`MiniMax-M3`、`GLM-5.2`，免费额度 |
+| Kimi | `KIMI_API_KEY` | `kimi-k3.1-pro`、`kimi-k3.1-pro-highspeed`、`kimi-k3`（1M 上下文） |
+| 阶跃星辰 | `STEPFUN_API_KEY` | `step-5-preview`、`step-3.7-flash`（多模态）、`step-3.5-flash`、`step-1o-turbo-vision` |
+| MiniMax | `MINIMAX_API_KEY` | `MiniMax-M3.1-Flash`、`MiniMax-M3`（1M 上下文，多模态） |
+
+> 内置表已按各家 2026-11 官方文档核对：上下文/输出上限、是否支持视觉与 `reasoning_effort`。请求层差异（`store`、`developer` 角色、`max_tokens` vs `max_completion_tokens`、各家的思考档位取值）在 `src/providers/model-resolver.ts` 的 `CHINA_PROVIDER_COMPAT` 里逐家钉死；需要覆盖时在配置的 provider 上写 `baseUrl`，模型级差异仍可走自定义 provider 的 `compat`。
 
 ### 海外模型
 
@@ -348,7 +350,7 @@ QQ、飞书和钉钉都支持长连接模式，企业微信使用 Webhook 回调
   // Agent 配置
   agent: {
     defaultProvider: "deepseek",
-    defaultModel: "deepseek-chat",
+    defaultModel: "deepseek-flash",
     temperature: 0.7,
     maxTokens: 4096,
     systemPrompt: "你是墨子，一个智能助手。"
@@ -590,7 +592,7 @@ Agent 可以通过内置工具管理定时任务：
   deliver: true,
   channel: "dingtalk",
   to: "群组ID或用户ID",
-  model: "deepseek-chat"
+  model: "deepseek-flash"
 }
 ```
 
@@ -827,7 +829,7 @@ import { completeSimple } from "@mariozechner/pi-ai";
 const config = loadConfig();
 initializeProviders(config);
 
-const model = resolveModel("deepseek", "deepseek-chat");
+const model = resolveModel("deepseek", "deepseek-flash");
 const apiKey = getApiKeyForProvider("deepseek");
 
 const response = await completeSimple(model, {

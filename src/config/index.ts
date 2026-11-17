@@ -52,7 +52,7 @@ const WeComConfigSchema = z.object({
 });
 
 const AgentConfigSchema = z.object({
-  defaultModel: z.string().default("deepseek-chat"),
+  defaultModel: z.string().default("deepseek-flash"),
   defaultProvider: z.enum(PROVIDER_IDS).default("deepseek"),
   systemPrompt: z.string().optional(),
   maxTokens: z.number().optional().default(4096),

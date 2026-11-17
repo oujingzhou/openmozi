@@ -130,7 +130,7 @@ describe("hooks", () => {
         type: "agent_start",
         timestamp: Date.now(),
         provider: "deepseek",
-        model: "deepseek-chat",
+        model: "deepseek-flash",
         messages: [],
       };
 
@@ -145,7 +145,7 @@ describe("hooks", () => {
         type: "agent_start",
         timestamp: Date.now(),
         provider: "deepseek",
-        model: "deepseek-chat",
+        model: "deepseek-flash",
         messages: [],
       };
 
@@ -481,7 +481,7 @@ describe("hooks", () => {
 
       emitAgentStart({
         provider: "deepseek",
-        model: "deepseek-chat",
+        model: "deepseek-flash",
         messages: [],
       });
 
@@ -501,7 +501,7 @@ describe("hooks", () => {
 
       emitAgentStart({
         provider: "deepseek",
-        model: "deepseek-chat",
+        model: "deepseek-flash",
         messages: [],
         sessionKey: "my-session-key",
       });

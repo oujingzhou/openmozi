@@ -118,7 +118,6 @@ export interface ProviderConfigInfo {
   name: string;
   baseUrl?: string;
   hasApiKey: boolean;
-  groupId?: string;
   /** 自定义提供商的模型列表（不含任何密钥） */
   models?: Array<{
     id: string;

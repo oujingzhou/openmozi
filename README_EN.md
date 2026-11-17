@@ -114,15 +114,17 @@ Open your browser and visit `http://localhost:3000` to start chatting.
 
 ### Chinese Models
 
-| Provider | Environment Variable | Description |
+| Provider | Environment Variable | Built-in models (verified 2026-11) |
 |----------|---------------------|-------------|
-| DeepSeek | `DEEPSEEK_API_KEY` | Strong reasoning, cost-effective |
-| DashScope | `DASHSCOPE_API_KEY` | Alibaba Cloud Bailian, Qwen commercial version, stable high concurrency |
-| Zhipu AI | `ZHIPU_API_KEY` | GLM-Z1/GLM-4/GLM-5 series, Tsinghua tech team, free tier available |
-| ModelScope | `MODELSCOPE_API_KEY` | Alibaba ModelScope community, Qwen open source, free tier available |
-| Kimi | `KIMI_API_KEY` | Kimi K2.5/Moonshot series, long context support |
-| StepFun | `STEPFUN_API_KEY` | Step-2/Step-1 series, reasoning and multimodal |
-| MiniMax | `MINIMAX_API_KEY` | MiniMax M2.5/M2.1 series, strong reasoning |
+| DeepSeek | `DEEPSEEK_API_KEY` | `deepseek-flash` (V4.1 Flash, 1M context, native multimodal), `deepseek-v4-pro` |
+| DashScope | `DASHSCOPE_API_KEY` | `qwen4-max`, `qwen3.7-plus`, `qwen3.8-flash` (all 1M context) |
+| Zhipu AI | `ZHIPU_API_KEY` | `glm-5.3`, `glm-5.3-flash` (multimodal), `glm-4.7`, `glm-4.7-flash` (free) |
+| ModelScope | `MODELSCOPE_API_KEY` | `DeepSeek-V4.1-Flash-1017`, `Qwen3.5-397B-A17B`, `Kimi-K3.1-Pro`, `MiniMax-M3`, `GLM-5.2`, free tier |
+| Kimi | `KIMI_API_KEY` | `kimi-k3.1-pro`, `kimi-k3.1-pro-highspeed`, `kimi-k3` (1M context) |
+| StepFun | `STEPFUN_API_KEY` | `step-5-preview`, `step-3.7-flash` (multimodal), `step-3.5-flash`, `step-1o-turbo-vision` |
+| MiniMax | `MINIMAX_API_KEY` | `MiniMax-M3.1-Flash`, `MiniMax-M3` (1M context, multimodal) |
+
+> The built-in tables were re-checked against each vendor's official docs in 2026-11 (context/output limits, vision, `reasoning_effort`). Request-level differences (`store`, `developer` role, `max_tokens` vs `max_completion_tokens`, per-vendor thinking levels) are pinned per provider in `CHINA_PROVIDER_COMPAT` in `src/providers/model-resolver.ts`.
 
 ### International Models
 
@@ -261,7 +263,7 @@ Configuration files support `config.local.json5`, `config.json5`, `config.yaml` 
   // Agent configuration
   agent: {
     defaultProvider: "deepseek",
-    defaultModel: "deepseek-chat",
+    defaultModel: "deepseek-flash",
     temperature: 0.7,
     maxTokens: 4096,
     systemPrompt: "You are Mozi, an intelligent assistant."
@@ -503,7 +505,7 @@ Scheduled tasks support proactively delivering Agent execution results to specif
   deliver: true,
   channel: "dingtalk",
   to: "group_id_or_user_id",
-  model: "deepseek-chat"
+  model: "deepseek-flash"
 }
 ```
 
@@ -659,7 +661,7 @@ import { completeSimple } from "@mariozechner/pi-ai";
 const config = loadConfig();
 initializeProviders(config);
 
-const model = resolveModel("deepseek", "deepseek-chat");
+const model = resolveModel("deepseek", "deepseek-flash");
 const apiKey = getApiKeyForProvider("deepseek");
 
 const response = await completeSimple(model, {

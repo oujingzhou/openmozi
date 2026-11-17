@@ -23,7 +23,9 @@ import {
   isProviderAvailable,
   hasProvider,
 } from "../src/providers/index.js";
-import type { MoziConfig } from "../src/types/index.js";
+import type { OpenAICompletionsCompat } from "@mariozechner/pi-ai";
+import { getAllRegisteredModels } from "../src/providers/model-resolver.js";
+import type { MoziConfig, ProviderId } from "../src/types/index.js";
 
 function makeConfig(providers: Record<string, any>): MoziConfig {
   return {
@@ -76,9 +78,9 @@ describe("providers (model-resolver)", () => {
         deepseek: { apiKey: "sk-test" },
       }));
 
-      const model = resolveModel("deepseek", "deepseek-chat");
+      const model = resolveModel("deepseek", "deepseek-flash");
       expect(model).toBeDefined();
-      expect(model!.id).toBe("deepseek-chat");
+      expect(model!.id).toBe("deepseek-flash");
       expect(model!.api).toBe("openai-completions");
     });
 
@@ -102,7 +104,7 @@ describe("providers (model-resolver)", () => {
         deepseek: { apiKey: "sk-test", baseUrl: "https://custom.api.com/v1" },
       }));
 
-      const model = resolveModel("deepseek", "deepseek-chat");
+      const model = resolveModel("deepseek", "deepseek-flash");
       expect(model).toBeDefined();
       expect(model!.baseUrl).toBe("https://custom.api.com/v1");
     });
@@ -192,6 +194,77 @@ describe("providers (model-resolver)", () => {
 
     it("should return false for unconfigured provider", () => {
       expect(hasProvider("stepfun")).toBe(false);
+    });
+  });
+  describe("OpenAI 兼容层差异", () => {
+    /** 取 OpenAI 兼容模型上的 compat 字段；非 OpenAI 兼容模型返回 undefined。 */
+    function compatOf(provider: ProviderId, modelId: string): OpenAICompletionsCompat | undefined {
+      const model = resolveModel(provider, modelId);
+      return model?.api === "openai-completions" ? model.compat : undefined;
+    }
+
+    // 这些端点都不接受 store / developer 角色；Kimi 文档写明 role 仅支持
+    // system/user/assistant/tool，发 developer 会 400。
+    it("should pin store off and system role for every china provider", () => {
+      initializeProviders(makeConfig({
+        deepseek: { apiKey: "sk" },
+        kimi: { apiKey: "sk" },
+        stepfun: { apiKey: "sk" },
+        minimax: { apiKey: "sk" },
+        modelscope: { apiKey: "sk" },
+        dashscope: { apiKey: "sk" },
+        zhipu: { apiKey: "sk" },
+      }));
+
+      for (const item of getAllRegisteredModels()) {
+        const compat = compatOf(item.provider, item.modelId);
+        expect(compat?.supportsStore, item.modelId).toBe(false);
+        expect(compat?.supportsDeveloperRole, item.modelId).toBe(false);
+      }
+    });
+
+    it("should use max_completion_tokens only where documented", () => {
+      initializeProviders(makeConfig({
+        kimi: { apiKey: "sk" },
+        minimax: { apiKey: "sk" },
+        deepseek: { apiKey: "sk" },
+      }));
+
+      expect(compatOf("kimi", "kimi-k3.1-pro")?.maxTokensField).toBe("max_completion_tokens");
+      expect(compatOf("minimax", "MiniMax-M3.1-Flash")?.maxTokensField).toBe("max_completion_tokens");
+      expect(compatOf("deepseek", "deepseek-flash")?.maxTokensField).toBe("max_tokens");
+    });
+
+    it("maps the untyped off effort instead of sending it verbatim", () => {
+      initializeProviders(makeConfig({ kimi: { apiKey: "sk" }, deepseek: { apiKey: "sk" } }));
+
+      // 会话标题生成会传 off；不映射就会原样发出 "off" 被服务端拒绝
+      expect(compatOf("deepseek", "deepseek-flash")?.reasoningEffortMap?.off).toBe("none");
+      expect(compatOf("kimi", "kimi-k3.1-pro")?.reasoningEffortMap?.off).toBe("low");
+    });
+
+    it("keeps provider-specific reasoning effort values legal", () => {
+      initializeProviders(makeConfig({ zhipu: { apiKey: "sk" }, dashscope: { apiKey: "sk" } }));
+
+      // GLM-5.3 只认 low|high|max；qwen4-max 只认 low|high|xhigh
+      const zhipuEfforts = Object.values(compatOf("zhipu", "glm-5.3")?.reasoningEffortMap ?? {});
+      const dashscopeEfforts = Object.values(compatOf("dashscope", "qwen4-max")?.reasoningEffortMap ?? {});
+      expect(zhipuEfforts.length).toBeGreaterThan(0);
+      expect(dashscopeEfforts.length).toBeGreaterThan(0);
+      expect(zhipuEfforts.every((v) => v === "low" || v === "high" || v === "max")).toBe(true);
+      expect(dashscopeEfforts.every((v) => v === "low" || v === "high" || v === "xhigh")).toBe(true);
+    });
+
+    it("does not send reasoning_effort to modelscope", () => {
+      initializeProviders(makeConfig({ modelscope: { apiKey: "sk" } }));
+      expect(compatOf("modelscope", "deepseek-ai/DeepSeek-V4.1-Flash-1017")?.supportsReasoningEffort).toBe(false);
+    });
+
+    it("uses the MiniMax OpenAI-compatible root so pi-ai appends the right path", () => {
+      initializeProviders(makeConfig({ minimax: { apiKey: "sk" } }));
+      const model = resolveModel("minimax", "MiniMax-M3.1-Flash");
+      // pi-ai 会拼成 ${baseUrl}/chat/completions
+      expect(model?.baseUrl).toBe("https://api.minimax.cn/v1");
     });
   });
 });

@@ -317,25 +317,25 @@ program
         config.providers["deepseek"] = { apiKey: deepseekKey.trim() };
         if (!defaultProvider) {
           defaultProvider = "deepseek";
-          defaultModel = "deepseek-chat";
+          defaultModel = "deepseek-flash";
         }
       }
 
-      const zhipuKey = await question("智谱AI API Key (GLM系列，有免费额度): ");
+      const zhipuKey = await question("智谱AI API Key (GLM 系列，有免费额度): ");
       if (zhipuKey.trim()) {
         config.providers["zhipu"] = { apiKey: zhipuKey.trim() };
         if (!defaultProvider) {
           defaultProvider = "zhipu";
-          defaultModel = "glm-z1-flash";
+          defaultModel = "glm-5.3";
         }
       }
 
-      const dashscopeKey = await question("DashScope API Key (阿里云灵积，通义千问/Qwen3): ");
+      const dashscopeKey = await question("DashScope API Key (阿里云百炼，通义千问/Qwen): ");
       if (dashscopeKey.trim()) {
         config.providers["dashscope"] = { apiKey: dashscopeKey.trim() };
         if (!defaultProvider) {
           defaultProvider = "dashscope";
-          defaultModel = "qwen3-235b-a22b";
+          defaultModel = "qwen4-max";
         }
       }
 
@@ -344,7 +344,7 @@ program
         config.providers["kimi"] = { apiKey: kimiKey.trim() };
         if (!defaultProvider) {
           defaultProvider = "kimi";
-          defaultModel = "kimi-k2.5";
+          defaultModel = "kimi-k3.1-pro";
         }
       }
 
@@ -353,20 +353,16 @@ program
         config.providers["stepfun"] = { apiKey: stepfunKey.trim() };
         if (!defaultProvider) {
           defaultProvider = "stepfun";
-          defaultModel = "step-2-mini";
+          defaultModel = "step-5-preview";
         }
       }
 
       const minimaxKey = await question("MiniMax API Key: ");
       if (minimaxKey.trim()) {
-        const minimaxGroup = await question("MiniMax Group ID: ");
-        config.providers["minimax"] = {
-          apiKey: minimaxKey.trim(),
-          groupId: minimaxGroup.trim() || undefined,
-        };
+        config.providers["minimax"] = { apiKey: minimaxKey.trim() };
         if (!defaultProvider) {
           defaultProvider = "minimax";
-          defaultModel = "MiniMax-M2.1";
+          defaultModel = "MiniMax-M3.1-Flash";
         }
       }
 
@@ -375,7 +371,7 @@ program
         config.providers["modelscope"] = { apiKey: modelscopeKey.trim() };
         if (!defaultProvider) {
           defaultProvider = "modelscope";
-          defaultModel = "Qwen/Qwen2.5-72B-Instruct";
+          defaultModel = "deepseek-ai/DeepSeek-V4.1-Flash-1017";
         }
       }
     }

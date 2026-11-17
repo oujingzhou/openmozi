@@ -68,7 +68,7 @@ describe("cron_add tool - agentTurn support", () => {
       deliver: true,
       channel: "dingtalk",
       to: "user123",
-      model: "deepseek-chat",
+      model: "deepseek-flash",
       timeoutSeconds: 120,
     });
 
@@ -88,7 +88,7 @@ describe("cron_add tool - agentTurn support", () => {
       expect(job.payload.deliver).toBe(true);
       expect(job.payload.channel).toBe("dingtalk");
       expect(job.payload.to).toBe("user123");
-      expect(job.payload.model).toBe("deepseek-chat");
+      expect(job.payload.model).toBe("deepseek-flash");
       expect(job.payload.timeoutSeconds).toBe(120);
     }
   });

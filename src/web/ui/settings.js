@@ -261,7 +261,6 @@
         id: provider.id ?? id,
         name: provider.name ?? id,
         baseUrl: provider.baseUrl ?? "",
-        groupId: provider.groupId ?? "",
         hasApiKey: Boolean(provider.hasApiKey),
         apiKey: "",
         models: (provider.models ?? []).map((model) => ({
@@ -795,7 +794,6 @@
           id: provider.id || id,
           name: provider.name || id,
           baseUrl: provider.baseUrl || undefined,
-          groupId: provider.groupId || undefined,
           hasApiKey: true,
           ...(provider.apiKey ? { apiKey: provider.apiKey } : {}),
           // 只在用户改过模型列表（或新增提供商）时提交，保留 compat/supports* 等未暴露字段
@@ -963,7 +961,6 @@
         id: type,
         name: name || PROVIDER_LABELS[type] || type,
         baseUrl,
-        groupId: "",
         hasApiKey: Boolean(apiKey),
         apiKey,
         models: CUSTOM_PROVIDERS.has(type) ? [] : [],

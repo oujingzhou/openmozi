@@ -48,7 +48,6 @@ export function getConfigInfo(config: MoziConfig): ConfigInfo {
         name: typeof record.name === "string" ? record.name : id,
         baseUrl: typeof record.baseUrl === "string" ? record.baseUrl : undefined,
         hasApiKey: Boolean(record.apiKey),
-        groupId: typeof record.groupId === "string" ? record.groupId : undefined,
         ...(models && models.length > 0 ? { models } : {}),
       };
     }
@@ -297,7 +296,6 @@ export async function saveConfig(
           ...(p.baseUrl ? { baseUrl: p.baseUrl } : {}),
           ...(p.name ? { name: p.name } : {}),
           ...(p.id ? { id: p.id } : {}),
-          ...(p.groupId ? { groupId: p.groupId } : {}),
           // 逐条按 id 合并，保留 UI 没有暴露的字段（compat / supports* 等）
           ...(p.models && p.models.length > 0
             ? {

@@ -56,7 +56,6 @@ export interface SimpleProviderConfig {
   baseUrl?: string;
   apiKey?: string;
   headers?: Record<string, string>;
-  groupId?: string;  // MiniMax specific
 }
 
 // ============== 消息相关类型 ==============
